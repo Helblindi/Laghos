@@ -1,0 +1,102 @@
+cmake_minimum_required(VERSION 3.10)
+message(STATUS "CMake version: ${CMAKE_VERSION}")
+set(USER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/config/user.cmake" CACHE PATH
+  "Path to optional user configuration file.")
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Load user settings before the defaults - this way the defaults will not
+# overwrite the user set options. If the user has not set all options, we still
+# have the defaults.
+include("${USER_CONFIG}" OPTIONAL RESULT_VARIABLE USER_CONFIG_LOADED)
+if (USER_CONFIG_LOADED)
+  set(USER_CONFIG_LOADED "LOADED")
+endif()
+message(STATUS "Loading USER_CONFIG = ${USER_CONFIG} (${USER_CONFIG_LOADED})")
+# include("${CMAKE_CURRENT_SOURCE_DIR}/config/defaults.cmake")
+
+# Prohibit in-source builds
+if ("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
+  message(FATAL_ERROR "In-source builds are prohibited.")
+endif ("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
+
+project(Laghos LANGUAGES C CXX Fortran)
+
+# Import MFEM. The following variables can be used to help CMake find MFEM:
+#  * MFEM_DIR - absolute path to the MFEM build or install prefix.
+#  * mfem_DIR - absolute path to where MFEMConfig.cmake is.
+message(STATUS "Looking for mfem ...")
+if (MFEM_DIR)
+   find_package(mfem REQUIRED NAMES MFEM HINTS "${MFEM_DIR}"
+                "${MFEM_DIR}/build" NO_DEFAULT_PATH)
+else()
+   find_package(mfem REQUIRED NAMES MFEM)
+endif()
+message(STATUS "Found mfem config in: ${mfem_DIR} (version ${MFEM_VERSION})")
+# Use the same C++ compiler as MFEM. This is needed when MFEM was built using
+# an MPI wrapper and we do not have explicitly the MPI compile and link flags.
+if (NOT CMAKE_CXX_COMPILER AND MFEM_CXX_COMPILER)
+  set(CMAKE_CXX_COMPILER "${MFEM_CXX_COMPILER}")
+endif()
+
+# Default options match the Makefile
+if (NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "Debug")
+endif()
+
+#
+# Start finding everything
+#
+set(_laghos_compile_defs)
+set(_laghos_compile_opts)
+set(_laghos_include_dirs)
+set(_laghos_libraries)
+list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/CMake)
+
+# Include paths and libraries needed by MFEM
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MFEM_CXX_FLAGS}")
+list(APPEND _laghos_include_dirs ${MFEM_INCLUDE_DIRS})
+list(APPEND _laghos_libraries ${MFEM_LIBRARIES})
+
+message(STATUS "Laglos build type: CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
+message(STATUS "CMAKE_INSTALL_PREFIX = ${CMAKE_INSTALL_PREFIX}")
+
+set(LAGHOS_DIR "${PROJECT_SOURCE_DIR}/")
+
+## src dir stuff
+list(APPEND HEADERS
+   "${PROJECT_SOURCE_DIR}/laghos_assembly.hpp"
+   "${PROJECT_SOURCE_DIR}/laghos_solver.hpp"
+   "${PROJECT_SOURCE_DIR}/../mfem/build/mfem.hpp")
+
+list(APPEND SOURCES 
+   laghos_assembly.cpp
+   laghos_solver.cpp
+   laghos.cpp)
+
+
+message(STATUS "HEADERS: ${HEADERS}")
+message(STATUS "SOURCE: ${SOURCES}")
+
+add_library(laghos ${SOURCES} ${HEADERS})
+# Temporary band aid fix
+# For an unidentified reason, the imported mfem_libraries target only includes /usr/local/include"
+# however, most of the necessary library files are in /usr/local/include/mfem/general
+list(APPEND _laghos_include_dirs "/usr/local/include/mfem")
+MESSAGE(WARNING "Need to fix library import issue")
+
+target_compile_definitions(laghos PUBLIC ${_laghos_compile_defs})
+target_compile_options(laghos PUBLIC ${_laghos_compile_opts})
+target_include_directories(laghos PUBLIC ${_laghos_include_dirs})
+target_link_libraries(laghos PUBLIC ${_laghos_libraries})
+
+message(STATUS "Laghos include dirs: ${_laghos_include_dirs}")
+message(STATUS "_laghos_libraries: ${_laghos_libraries}")
+
+# Finally, add the executable
+include_directories(${_laghos_include_dirs})
+add_executable(laghos-exe laghos.cpp)
+set_target_properties(laghos-exe PROPERTIES OUTPUT_NAME laghos)
+target_link_libraries(laghos-exe PRIVATE laghos)
