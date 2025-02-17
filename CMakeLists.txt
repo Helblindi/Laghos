@@ -15,7 +15,7 @@ if (USER_CONFIG_LOADED)
   set(USER_CONFIG_LOADED "LOADED")
 endif()
 message(STATUS "Loading USER_CONFIG = ${USER_CONFIG} (${USER_CONFIG_LOADED})")
-# include("${CMAKE_CURRENT_SOURCE_DIR}/config/defaults.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/config/defaults.cmake")
 
 # Prohibit in-source builds
 if ("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
@@ -35,11 +35,40 @@ else()
    find_package(mfem REQUIRED NAMES MFEM)
 endif()
 message(STATUS "Found mfem config in: ${mfem_DIR} (version ${MFEM_VERSION})")
+
+# Import Laglos
+message(STATUS "Looking for Laglos ...")
+if (LAGLOS_DIR)
+   find_package(Laglos REQUIRED NAMES LAGLOS HINTS "${LAGLOS_DIR}"
+               "${LAGLOS_DIR}/build" "${LAGLOS_DIR}/build/install/lib/cmake" NO_DEFAULT_PATH)
+else()
+   find_package(Laglos REQUIRED NAMES LAGLOS)
+endif()
+message(STATUS "Found Laglos config in ${Laglos_DIR} (version ${LAGLOS_VERSION})")
+
+message(STATUS "Laglos libraries: ${LAGLOS_LIBRARIES}")
+message(STATUS "Laglos include dirs: ${LAGLOS_INCLUDE_DIRS}")
+message(STATUS "Laglos found? ${Laglos_FOUND}")
+
+if (LAGLOS_USE_HIOP)
+   find_package(HIOP REQUIRED HINTS LAGLOS_HIOP_DIR "${LAGLOS_HIOP_DIR}/install")
+endif()
+
+if (LAGLOS_USE_BOOST)
+   # Avoid setting CMP0167 if using a CMake version that predates 3.26
+   if(POLICY CMP0167)
+      cmake_policy(SET CMP0167 NEW)
+   endif()
+   find_package(Boost REQUIRED COMPONENTS filesystem)
+endif()
+
 # Use the same C++ compiler as MFEM. This is needed when MFEM was built using
 # an MPI wrapper and we do not have explicitly the MPI compile and link flags.
 if (NOT CMAKE_CXX_COMPILER AND MFEM_CXX_COMPILER)
   set(CMAKE_CXX_COMPILER "${MFEM_CXX_COMPILER}")
 endif()
+
+
 
 # Default options match the Makefile
 if (NOT CMAKE_BUILD_TYPE)
@@ -57,8 +86,8 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/CMake)
 
 # Include paths and libraries needed by MFEM
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MFEM_CXX_FLAGS}")
-list(APPEND _laghos_include_dirs ${MFEM_INCLUDE_DIRS})
-list(APPEND _laghos_libraries ${MFEM_LIBRARIES})
+list(APPEND _laghos_include_dirs ${MFEM_INCLUDE_DIRS} ${LAGLOS_INCLUDE_DIRS})
+list(APPEND _laghos_libraries ${MFEM_LIBRARIES} ${LAGLOS_LIBRARIES})
 
 message(STATUS "Laglos build type: CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
 message(STATUS "CMAKE_INSTALL_PREFIX = ${CMAKE_INSTALL_PREFIX}")
