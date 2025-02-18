@@ -1,7 +1,8 @@
-set(MFEM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../mfem/)
-set(mfem_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../mfem/)
+set(MFEM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../mfem-git/build/install/lib/cmake/mfem
+    CACHE PATH "Path to MFEMConfig.cmake configuration file")
 
-set(LAGLOS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../Laglos/)
+set(LAGLOS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../Laglos/
+    CACHE PATH "Path to LAGLOSConfig.cmake configuration file")
 
 # set(LAGLOS_HIOP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../hiop/)
 

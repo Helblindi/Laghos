@@ -29,12 +29,12 @@ project(Laghos LANGUAGES C CXX Fortran)
 #  * mfem_DIR - absolute path to where MFEMConfig.cmake is.
 message(STATUS "Looking for mfem ...")
 if (MFEM_DIR)
-   find_package(mfem REQUIRED NAMES MFEM HINTS "${MFEM_DIR}"
-                "${MFEM_DIR}/build" NO_DEFAULT_PATH)
+   find_package(mfem REQUIRED NAMES MFEM HINTS "${MFEM_DIR}" NO_DEFAULT_PATH)
 else()
    find_package(mfem REQUIRED NAMES MFEM)
 endif()
 message(STATUS "Found mfem config in: ${mfem_DIR} (version ${MFEM_VERSION})")
+MESSAGE(STATUS "MFEM_INCLUDE_DIRS: ${MFEM_INCLUDE_DIRS}")
 
 # Import Laglos
 message(STATUS "Looking for Laglos ...")
@@ -110,11 +110,6 @@ message(STATUS "HEADERS: ${HEADERS}")
 message(STATUS "SOURCE: ${SOURCES}")
 
 add_library(laghos ${SOURCES} ${HEADERS})
-# Temporary band aid fix
-# For an unidentified reason, the imported mfem_libraries target only includes /usr/local/include"
-# however, most of the necessary library files are in /usr/local/include/mfem/general
-list(APPEND _laghos_include_dirs "/usr/local/include/mfem")
-MESSAGE(WARNING "Need to fix library import issue")
 
 target_compile_definitions(laghos PUBLIC ${_laghos_compile_defs})
 target_compile_options(laghos PUBLIC ${_laghos_compile_opts})
