@@ -29,37 +29,42 @@ project(Laghos LANGUAGES C CXX Fortran)
 #  * mfem_DIR - absolute path to where MFEMConfig.cmake is.
 message(STATUS "Looking for mfem ...")
 if (MFEM_DIR)
-   find_package(mfem REQUIRED NAMES MFEM HINTS "${MFEM_DIR}" NO_DEFAULT_PATH)
+   find_package(mfem REQUIRED NAMES MFEM HINTS "${MFEM_DIR}" 
+                "${mfem_DIR}" NO_DEFAULT_PATH)
 else()
    find_package(mfem REQUIRED NAMES MFEM)
 endif()
 message(STATUS "Found mfem config in: ${mfem_DIR} (version ${MFEM_VERSION})")
 MESSAGE(STATUS "MFEM_INCLUDE_DIRS: ${MFEM_INCLUDE_DIRS}")
 
-# Import Laglos
-message(STATUS "Looking for Laglos ...")
-if (LAGLOS_DIR)
-   find_package(Laglos REQUIRED NAMES LAGLOS HINTS "${LAGLOS_DIR}"
-               "${LAGLOS_DIR}/build" "${LAGLOS_DIR}/build/install/lib/cmake" NO_DEFAULT_PATH)
-else()
-   find_package(Laglos REQUIRED NAMES LAGLOS)
-endif()
-message(STATUS "Found Laglos config in ${Laglos_DIR} (version ${LAGLOS_VERSION})")
-
-message(STATUS "Laglos libraries: ${LAGLOS_LIBRARIES}")
-message(STATUS "Laglos include dirs: ${LAGLOS_INCLUDE_DIRS}")
-message(STATUS "Laglos found? ${Laglos_FOUND}")
-
-if (LAGLOS_USE_HIOP)
-   find_package(HIOP REQUIRED HINTS LAGLOS_HIOP_DIR "${LAGLOS_HIOP_DIR}/install")
-endif()
-
-if (LAGLOS_USE_BOOST)
-   # Avoid setting CMP0167 if using a CMake version that predates 3.26
-   if(POLICY CMP0167)
-      cmake_policy(SET CMP0167 NEW)
+if (LAGHOS_LIMIT)
+   # Import Laglos. The following variables can be used to help CMake find LAGLOS:
+   #  * LAGLOS_DIR - absolute path to the LAGLOS build or install prefix.
+   #  * laglos_DIR - absolute path to where LAGLOSConfig.cmake is.
+   message(STATUS "Looking for Laglos ...")
+   if (LAGLOS_DIR)
+      find_package(Laglos REQUIRED NAMES LAGLOS HINTS "${LAGLOS_DIR}"
+                  "${laglos_DIR}" NO_DEFAULT_PATH)
+   else()
+      find_package(Laglos REQUIRED NAMES LAGLOS)
    endif()
-   find_package(Boost REQUIRED COMPONENTS filesystem)
+   message(STATUS "Found Laglos config in ${Laglos_DIR} (version ${LAGLOS_VERSION})")
+
+   message(STATUS "Laglos libraries: ${LAGLOS_LIBRARIES}")
+   message(STATUS "Laglos include dirs: ${LAGLOS_INCLUDE_DIRS}")
+   message(STATUS "Laglos found? ${Laglos_FOUND}")
+
+   if (LAGLOS_USE_HIOP)
+      find_package(HIOP REQUIRED HINTS LAGLOS_HIOP_DIR "${LAGLOS_HIOP_DIR}/install")
+   endif()
+
+   if (LAGLOS_USE_BOOST)
+      # Avoid setting CMP0167 if using a CMake version that predates 3.26
+      if(POLICY CMP0167)
+         cmake_policy(SET CMP0167 NEW)
+      endif()
+      find_package(Boost REQUIRED COMPONENTS filesystem)
+   endif()
 endif()
 
 # Use the same C++ compiler as MFEM. This is needed when MFEM was built using
@@ -86,10 +91,15 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/CMake)
 
 # Include paths and libraries needed by MFEM
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MFEM_CXX_FLAGS}")
-list(APPEND _laghos_include_dirs ${MFEM_INCLUDE_DIRS} ${LAGLOS_INCLUDE_DIRS})
-list(APPEND _laghos_libraries ${MFEM_LIBRARIES} ${LAGLOS_LIBRARIES})
+list(APPEND _laghos_include_dirs ${MFEM_INCLUDE_DIRS})
+list(APPEND _laghos_libraries ${MFEM_LIBRARIES})
 
-message(STATUS "Laglos build type: CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
+if (LAGHOS_LIMIT)
+   list(APPEND _laghos_include_dirs ${LAGLOS_INCLUDE_DIRS})
+   list(APPEND _laghos_libraries ${LAGLOS_LIBRARIES})
+endif()
+
+message(STATUS "Laghos build type: CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
 message(STATUS "CMAKE_INSTALL_PREFIX = ${CMAKE_INSTALL_PREFIX}")
 
 set(LAGHOS_DIR "${PROJECT_SOURCE_DIR}/")
