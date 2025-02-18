@@ -63,6 +63,8 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include "laghos_solver.hpp"
+#include "laglos_solver.hpp"
+#include "test_problems_include.h"
 
 using std::cout;
 using std::endl;
@@ -72,10 +74,10 @@ using namespace mfem;
 static int problem, dim;
 
 // Forward declarations.
-double e0(const Vector &);
-double rho0(const Vector &);
-double gamma_func(const Vector &);
-void v0(const Vector &, Vector &);
+// double e0(const Vector &);
+// double rho0(const Vector &);
+// double gamma_func(const Vector &);
+// void v0(const Vector &, Vector &);
 
 static long GetMaxRssMB();
 static void display_banner(std::ostream&);
@@ -101,6 +103,7 @@ int main(int argc, char *argv[])
    int order_v = 2;
    int order_e = 1;
    int order_q = -1;
+   int order_l = 1; // low-order approximation space
    int ode_solver_type = 4;
    double t_final = 0.6;
    double cfl = 0.5;
@@ -406,6 +409,112 @@ int main(int argc, char *argv[])
    if (myid == 0)
    { cout << "Zones min/max: " << ne_min << " " << ne_max << endl; }
 
+   // Set up problem
+   // const int dim_c = dim;
+   const static int dim_c = 2;
+   MFEM_WARNING("Will not get proper results from 3d tests.\n");
+   hydroLO::ProblemBase<dim_c> * problem_class = NULL;
+   switch (problem)
+   {
+      case 0: // Taylor-Green
+         problem_class = new hydroLO::TaylorGreenProblem<dim_c>();
+         break;
+      case 1: // Sedov
+         problem_class = new hydroLO::SedovLLNLProblem<dim_c>();
+         break;
+      case 2: // Sod
+         problem_class = new hydroLO::SodProblem<dim_c>();
+         break;
+      case 3: // Triple Point
+         problem_class = new hydroLO::TriplePoint<dim_c>();
+         break;
+      case 4: // gresho vortex
+      case 5: // 2D Riemann problem
+      case 6: // 2D Riemann problem
+      case 7: // 2D Rayleigh-Taylor instability
+         MFEM_ABORT("Not implemented.\n");
+      case 8: // Radial Sod
+         problem_class = new hydroLO::SodRadial<dim_c>();
+         break;
+      case 9: // Isentropic Vortex, stationary center
+         problem_class = new hydroLO::IsentropicVortex<dim_c>();
+         break;
+      case 10: // Noh
+         problem_class = new hydroLO::NohProblem<dim_c>();
+         break;
+      case 11: // Saltzmann
+         problem_class = new hydroLO::SaltzmannProblem<dim_c>();
+         break;
+      /* VDW */
+      case 12:
+         problem_class = new hydroLO::VdwTest1<dim_c>();
+         break;
+      case 13:
+         problem_class = new hydroLO::VdwTest2<dim_c>();
+         break;
+      case 14:
+         problem_class = new hydroLO::VdwTest3<dim_c>();
+         break;
+      case 15:
+         problem_class = new hydroLO::VdwTest4<dim_c>();
+         break;
+      case 16: // Kidder shell
+         problem_class = new hydroLO::KidderProblem<dim_c>();
+         break;
+      case 17: // Kidder ball
+         problem_class = new hydroLO::KidderBallProblem<dim_c>();
+         break;
+      case 18: // ICF
+         problem_class = new hydroLO::ICFProblem<dim_c>();
+         break;
+      case 21: // Sedov
+      {
+         MFEM_ABORT("Not implemented\n");
+         // assert(hmin == hmax);
+         // Vector params(2);
+         // params[0] = hmax, params[1] = pmesh->GetElementVolume(0);
+
+         // problem_class = new hydroLO::SedovProblem<dim_c>();
+         // problem_class->update(params, t_init);
+         // // TODO: Will need to modify initialization of internal energy
+         // //       if distorted meshes are used.
+         // break;
+      }
+      case 40: // Smooth
+         problem_class = new hydroLO::SmoothWave<dim_c>();
+         break;
+      case 41: // Lax
+         problem_class = new hydroLO::LaxProblem<dim_c>();
+         break;
+      case 42: // Leblanc
+         problem_class = new hydroLO::LeblancProblem<dim_c>();
+         break;
+      case 43: // Riemann Problem
+         problem_class = new hydroLO::RiemannProblem<dim_c>();
+         break;
+      case 100:
+         problem_class = new hydroLO::TestBCs<dim_c>();
+         break;
+      default:
+         MFEM_ABORT("Failed to initiate a problem.\n");
+   }
+
+   // Change class variables into static std::functions since virtual static member functions are not an option
+   // and Coefficient class requires std::function arguments
+   using namespace std::placeholders;
+   std::function<double(const Vector &,const double)> sv0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::sv0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   std::function<void(const Vector &, const double, Vector &)> v0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::v0, problem_class, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+   std::function<double(const Vector &,const double)> ste0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::ste0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   std::function<double(const Vector &,const double)> rho0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::rho0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   std::function<double(const Vector &,const double)> p0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::p0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   std::function<double(const Vector &,const double)> gamma_func_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::gamma_func, problem_class, std::placeholders::_1, std::placeholders::_2);
+
    // Define the parallel finite element spaces. We use:
    // - H1 (Gauss-Lobatto, continuous) for position and velocity.
    // - L2 (Bernstein, discontinuous) for specific internal energy.
@@ -490,7 +599,7 @@ int main(int argc, char *argv[])
    x_gf.SyncAliasMemory(S);
 
    // Initialize the velocity.
-   VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0);
+   VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0_static);
    v_gf.ProjectCoefficient(v_coeff);
    for (int i = 0; i < ess_vdofs.Size(); i++)
    {
@@ -506,7 +615,7 @@ int main(int argc, char *argv[])
    // this density is a temporary function and it will not be updated during the
    // time evolution.
    ParGridFunction rho0_gf(&L2FESpace);
-   FunctionCoefficient rho0_coeff(rho0);
+   FunctionCoefficient rho0_coeff(rho0_static);
    L2_FECollection l2_fec(order_e, pmesh->Dimension());
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
    ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes);
@@ -521,7 +630,7 @@ int main(int argc, char *argv[])
    }
    else
    {
-      FunctionCoefficient e_coeff(e0);
+      FunctionCoefficient e_coeff(ste0_static);
       l2_e.ProjectCoefficient(e_coeff);
    }
    e_gf.ProjectGridFunction(l2_e);
@@ -533,7 +642,7 @@ int main(int argc, char *argv[])
    L2_FECollection mat_fec(0, pmesh->Dimension());
    ParFiniteElementSpace mat_fes(pmesh, &mat_fec);
    ParGridFunction mat_gf(&mat_fes);
-   FunctionCoefficient mat_coeff(gamma_func);
+   FunctionCoefficient mat_coeff(gamma_func_static);
    mat_gf.ProjectCoefficient(mat_coeff);
 
    // Additional details, depending on the problem.
@@ -548,6 +657,22 @@ int main(int argc, char *argv[])
       case 5: visc = true; break;
       case 6: visc = true; break;
       case 7: source = 2; visc = true; vorticity = true;  break;
+      case 8:
+      case 9:
+      case 10:
+      case 11:
+      case 12:
+      case 13:
+      case 14:
+      case 15:
+      case 16:
+      case 17:
+      case 18:
+      case 40:
+      case 41:
+      case 42:
+      case 43:
+      case 100: visc = true; break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
@@ -559,6 +684,72 @@ int main(int argc, char *argv[])
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q);
+   
+   /* Construct LO operator */
+   // Define the low order mesh
+   ParMesh *pmesh_lo = nullptr;
+   pmesh_lo = new ParMesh(MPI_COMM_WORLD, *pmesh);
+
+   int n_add_refinements_lo = 0;
+   switch(order_e)
+   {
+   case 1:
+      n_add_refinements_lo = 0;
+      break;
+   case 2:
+      n_add_refinements_lo = 1;
+      break;
+   case 4:
+      n_add_refinements_lo = 2;
+      break;
+   case 8:
+      n_add_refinements_lo = 3;
+      break;
+   default:
+      MFEM_ABORT("Invalid order_e to be limited. order_e must be 1,2,4,8.");
+   }
+
+   for (int it = 0; it < n_add_refinements_lo; it++)
+   {
+      pmesh_lo->UniformRefinement();
+   }
+
+   // Define the parallel finite element spaces. We use:
+   // - H1 (Q2, continuous) for mesh movement.
+   // - L2 (Q0, discontinuous) for state variables
+   // - CR/RT for mesh reconstruction at nodes
+   H1_FECollection LO_H1FEC(2, dim);
+   H1_FECollection LO_H1FEC_L(1, dim);
+   L2_FECollection LO_L2FEC(0, dim, BasisType::Positive);
+   FiniteElementCollection * LO_CRFEC;
+   if (dim == 1)
+   {
+      LO_CRFEC = new CrouzeixRaviartFECollection();
+   }
+   else
+   {
+      LO_CRFEC = new RT_FECollection(0, dim);
+   }
+
+   ParFiniteElementSpace LO_H1FESpace(pmesh_lo, &LO_H1FEC, dim);
+   ParFiniteElementSpace LO_H1FESpace_L(pmesh_lo, &LO_H1FEC_L, dim);
+   /* Finite element space solely constructed for continuous representation of density field */
+   ParFiniteElementSpace LO_L2FESpace(pmesh_lo, &LO_L2FEC);
+   ParFiniteElementSpace LO_L2VFESpace(pmesh_lo, &LO_L2FEC, dim);
+   ParFiniteElementSpace LO_CRFESpace(pmesh_lo, LO_CRFEC, dim);
+
+   ParLinearForm *m = new ParLinearForm(&L2FESpace);
+   m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
+   m->Assemble();
+
+   bool use_viscosity = true;
+   bool mm = true;
+   hydroLO::LagrangianLOOperator<dim_c> hydroLow(S.Size(), 
+                                                 LO_H1FESpace, LO_H1FESpace_L, 
+                                                 LO_L2FESpace, LO_L2VFESpace, 
+                                                 LO_CRFESpace, m, 
+                                                 problem_class, offset, 
+                                                 use_viscosity, mm, cfl);
 
    socketstream vis_rho, vis_v, vis_e;
    char vishost[] = "localhost";
@@ -861,6 +1052,7 @@ int main(int argc, char *argv[])
    return 0;
 }
 
+/*
 double rho0(const Vector &x)
 {
    switch (problem)
@@ -906,9 +1098,11 @@ double gamma_func(const Vector &x)
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
+*/
 
 static double rad(double x, double y) { return sqrt(x*x + y*y); }
 
+/*
 void v0(const Vector &x, Vector &v)
 {
    const double atn = dim!=1 ? pow((x(0)*(1.0-x(0))*4*x(1)*(1.0-x(1))*4.0),
@@ -1043,6 +1237,7 @@ double e0(const Vector &x)
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
+*/
 
 static void display_banner(std::ostream &os)
 {
