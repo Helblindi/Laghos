@@ -105,6 +105,7 @@ int main(int argc, char *argv[])
    int order_q = -1;
    int order_l = 1; // low-order approximation space
    int ode_solver_type = 4;
+   double t_init = 0.0;
    double t_final = 0.6;
    double cfl = 0.5;
    double cg_tol = 1e-8;
@@ -148,6 +149,7 @@ int main(int argc, char *argv[])
                   "ODE solver: 1 - Forward Euler,\n\t"
                   "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6,\n\t"
                   "            7 - RK2Avg.");
+   args.AddOption(&t_init, "-ti", "--t-init", "Initial time.");
    args.AddOption(&t_final, "-tf", "--t-final",
                   "Final time; start time is 0.");
    args.AddOption(&cfl, "-cfl", "--cfl", "CFL-condition number.");
@@ -409,6 +411,34 @@ int main(int argc, char *argv[])
    if (myid == 0)
    { cout << "Zones min/max: " << ne_min << " " << ne_max << endl; }
 
+   // Define the low order mesh
+   ParMesh *pmesh_lo = nullptr;
+   pmesh_lo = new ParMesh(MPI_COMM_WORLD, *pmesh);
+
+   int n_add_refinements_lo = 0;
+   switch(order_e)
+   {
+   case 1:
+      n_add_refinements_lo = 0;
+      break;
+   case 2:
+      n_add_refinements_lo = 1;
+      break;
+   case 4:
+      n_add_refinements_lo = 2;
+      break;
+   case 8:
+      n_add_refinements_lo = 3;
+      break;
+   default:
+      MFEM_ABORT("Invalid order_e to be limited. order_e must be 1,2,4,8.");
+   }
+
+   for (int it = 0; it < n_add_refinements_lo; it++)
+   {
+      pmesh_lo->UniformRefinement();
+   }
+
    // Set up problem
    // const int dim_c = dim;
    const static int dim_c = 2;
@@ -523,6 +553,31 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace L2FESpace(pmesh, &L2FEC);
    ParFiniteElementSpace H1FESpace(pmesh, &H1FEC, pmesh->Dimension());
 
+   // Define the parallel finite element spaces for 
+   // the low order approximation. We use:
+   // - H1 (Q2, continuous) for mesh movement.
+   // - L2 (Q0, discontinuous) for state variables
+   // - CR/RT for mesh reconstruction at nodes
+   H1_FECollection LO_H1FEC(2, dim);
+   H1_FECollection LO_H1FEC_L(1, dim);
+   L2_FECollection LO_L2FEC(0, dim, BasisType::Positive);
+   FiniteElementCollection * LO_CRFEC;
+   if (dim == 1)
+   {
+      LO_CRFEC = new CrouzeixRaviartFECollection();
+   }
+   else
+   {
+      LO_CRFEC = new RT_FECollection(0, dim);
+   }
+
+   ParFiniteElementSpace LO_H1FESpace(pmesh_lo, &LO_H1FEC, dim);
+   ParFiniteElementSpace LO_H1FESpace_L(pmesh_lo, &LO_H1FEC_L, dim);
+   /* Finite element space solely constructed for continuous representation of density field */
+   ParFiniteElementSpace LO_L2FESpace(pmesh_lo, &LO_L2FEC);
+   ParFiniteElementSpace LO_L2VFESpace(pmesh_lo, &LO_L2FEC, dim);
+   ParFiniteElementSpace LO_CRFESpace(pmesh_lo, LO_CRFEC, dim);
+
    // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
    Array<int> ess_tdofs, ess_vdofs;
@@ -584,6 +639,23 @@ int main(int argc, char *argv[])
    offset[3] = offset[2] + Vsize_l2;
    BlockVector S(offset, Device::GetMemoryType());
 
+   /* The monolithic BlockVector stores unknown fields as:
+   *   - 0 -> position
+   *   - 1 -> specific volume
+   *   - 2 -> velocity (L2V)
+   *   - 3 -> speific total energy
+   */
+   const int Vsize_l2_LO = LO_L2FESpace.GetVSize();
+   const int Vsize_l2v_LO = LO_L2VFESpace.GetVSize();
+   const int Vsize_h1_LO = LO_H1FESpace.GetVSize();
+   Array<int> offset_LO(5);
+   offset_LO[0] = 0;
+   offset_LO[1] = offset_LO[0] + Vsize_h1_LO;
+   offset_LO[2] = offset_LO[1] + Vsize_l2_LO;
+   offset_LO[3] = offset_LO[2] + Vsize_l2v_LO;
+   offset_LO[4] = offset_LO[3] + Vsize_l2_LO;
+   BlockVector S_LO(offset_LO, Device::GetMemoryType());
+
    // Define GridFunction objects for the position, velocity and specific
    // internal energy. There is no function for the density, as we can always
    // compute the density values given the current mesh position, using the
@@ -593,20 +665,32 @@ int main(int argc, char *argv[])
    v_gf.MakeRef(&H1FESpace, S, offset[1]);
    e_gf.MakeRef(&L2FESpace, S, offset[2]);
 
+   /* Define the low order grid functions*/
+   ParGridFunction x_gf_LO, sv_gf_LO, v_gf_LO, ste_gf_LO;
+   x_gf_LO.MakeRef(&LO_H1FESpace, S_LO, offset_LO[0]);
+   sv_gf_LO.MakeRef(&LO_L2FESpace, S, offset_LO[1]);
+   v_gf_LO.MakeRef(&LO_L2VFESpace, S, offset_LO[2]);
+   ste_gf_LO.MakeRef(&LO_L2FESpace, S, offset_LO[3]);
+
    // Initialize x_gf using the starting mesh coordinates.
    pmesh->SetNodalGridFunction(&x_gf);
+   pmesh_lo->SetNodalGridFunction(&x_gf_LO);
    // Sync the data location of x_gf with its base, S
    x_gf.SyncAliasMemory(S);
+   x_gf_LO.SyncAliasMemory(S_LO);
 
    // Initialize the velocity.
    VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0_static);
+   v_coeff.SetTime(t_init);
    v_gf.ProjectCoefficient(v_coeff);
+   v_gf_LO.ProjectCoefficient(v_coeff);
    for (int i = 0; i < ess_vdofs.Size(); i++)
    {
       v_gf(ess_vdofs[i]) = 0.0;
    }
    // Sync the data location of v_gf with its base, S
    v_gf.SyncAliasMemory(S);
+   v_gf_LO.SyncAliasMemory(S);
 
    // Initialize density and specific internal energy values. We interpolate in
    // a non-positive basis to get the correct values at the dofs. Then we do an
@@ -616,9 +700,12 @@ int main(int argc, char *argv[])
    // time evolution.
    ParGridFunction rho0_gf(&L2FESpace);
    FunctionCoefficient rho0_coeff(rho0_static);
+   rho0_coeff.SetTime(t_init);
    L2_FECollection l2_fec(order_e, pmesh->Dimension());
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
    ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes);
+   ParGridFunction l2_e_LO(&LO_L2FESpace);
+
    l2_rho0_gf.ProjectCoefficient(rho0_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
    if (problem == 1)
@@ -627,15 +714,25 @@ int main(int argc, char *argv[])
       DeltaCoefficient e_coeff(blast_position[0], blast_position[1],
                                blast_position[2], blast_energy);
       l2_e.ProjectCoefficient(e_coeff);
+      l2_e_LO.ProjectCoefficient(e_coeff);
    }
    else
    {
       FunctionCoefficient e_coeff(ste0_static);
+      e_coeff.SetTime(t_init);
       l2_e.ProjectCoefficient(e_coeff);
+      l2_e_LO.ProjectCoefficient(e_coeff);
    }
    e_gf.ProjectGridFunction(l2_e);
+   ste_gf_LO.ProjectGridFunction(l2_e_LO);
    // Sync the data location of e_gf with its base, S
    e_gf.SyncAliasMemory(S);
+   ste_gf_LO.SyncAliasMemory(S_LO);
+
+   // Project low order sv
+   FunctionCoefficient sv_coeff(sv0_static);
+   sv_coeff.SetTime(t_init);
+   sv_gf_LO.ProjectCoefficient(sv_coeff);
 
    // Piecewise constant ideal gas coefficient over the Lagrangian mesh. The
    // gamma values are projected on function that's constant on the moving mesh.
@@ -643,6 +740,7 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace mat_fes(pmesh, &mat_fec);
    ParGridFunction mat_gf(&mat_fes);
    FunctionCoefficient mat_coeff(gamma_func_static);
+   mat_coeff.SetTime(t_init);
    mat_gf.ProjectCoefficient(mat_coeff);
 
    // Additional details, depending on the problem.
@@ -685,66 +783,15 @@ int main(int argc, char *argv[])
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q);
    
-   /* Construct LO operator */
-   // Define the low order mesh
-   ParMesh *pmesh_lo = nullptr;
-   pmesh_lo = new ParMesh(MPI_COMM_WORLD, *pmesh);
 
-   int n_add_refinements_lo = 0;
-   switch(order_e)
-   {
-   case 1:
-      n_add_refinements_lo = 0;
-      break;
-   case 2:
-      n_add_refinements_lo = 1;
-      break;
-   case 4:
-      n_add_refinements_lo = 2;
-      break;
-   case 8:
-      n_add_refinements_lo = 3;
-      break;
-   default:
-      MFEM_ABORT("Invalid order_e to be limited. order_e must be 1,2,4,8.");
-   }
-
-   for (int it = 0; it < n_add_refinements_lo; it++)
-   {
-      pmesh_lo->UniformRefinement();
-   }
-
-   // Define the parallel finite element spaces. We use:
-   // - H1 (Q2, continuous) for mesh movement.
-   // - L2 (Q0, discontinuous) for state variables
-   // - CR/RT for mesh reconstruction at nodes
-   H1_FECollection LO_H1FEC(2, dim);
-   H1_FECollection LO_H1FEC_L(1, dim);
-   L2_FECollection LO_L2FEC(0, dim, BasisType::Positive);
-   FiniteElementCollection * LO_CRFEC;
-   if (dim == 1)
-   {
-      LO_CRFEC = new CrouzeixRaviartFECollection();
-   }
-   else
-   {
-      LO_CRFEC = new RT_FECollection(0, dim);
-   }
-
-   ParFiniteElementSpace LO_H1FESpace(pmesh_lo, &LO_H1FEC, dim);
-   ParFiniteElementSpace LO_H1FESpace_L(pmesh_lo, &LO_H1FEC_L, dim);
-   /* Finite element space solely constructed for continuous representation of density field */
-   ParFiniteElementSpace LO_L2FESpace(pmesh_lo, &LO_L2FEC);
-   ParFiniteElementSpace LO_L2VFESpace(pmesh_lo, &LO_L2FEC, dim);
-   ParFiniteElementSpace LO_CRFESpace(pmesh_lo, LO_CRFEC, dim);
-
+   /* Assemble initial masses for low order approximation */
    ParLinearForm *m = new ParLinearForm(&L2FESpace);
    m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
    m->Assemble();
-
+   /* Various other parameters */
    bool use_viscosity = true;
    bool mm = true;
-   hydroLO::LagrangianLOOperator<dim_c> hydroLow(S.Size(), 
+   hydroLO::LagrangianLOOperator<dim_c> hydro_LO(S_LO.Size(), 
                                                  LO_H1FESpace, LO_H1FESpace_L, 
                                                  LO_L2FESpace, LO_L2VFESpace, 
                                                  LO_CRFESpace, m, 
@@ -801,7 +848,7 @@ int main(int argc, char *argv[])
    // defines the Mult() method that used by the time integrators.
    ode_solver->Init(hydro);
    hydro.ResetTimeStepEstimate();
-   double t = 0.0, dt = hydro.GetTimeStepEstimate(S), t_old;
+   double t = t_init, dt = hydro.GetTimeStepEstimate(S), t_old;
    bool last_step = false;
    int steps = 0;
    BlockVector S_old(S);
