@@ -104,7 +104,7 @@ int main(int argc, char *argv[])
    int order_e = 1;
    int order_q = -1;
    int order_l = 1; // low-order approximation space
-   int ode_solver_type = 4;
+   int ode_solver_type = 1;
    double t_init = 0.0;
    double t_final = 0.6;
    double cfl = 0.5;
@@ -578,6 +578,10 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace LO_L2VFESpace(pmesh_lo, &LO_L2FEC, dim);
    ParFiniteElementSpace LO_CRFESpace(pmesh_lo, LO_CRFEC, dim);
 
+   cout << "LO L2 dofs: " << LO_L2FESpace.GetNDofs() << endl;
+   cout << "LO H1 dofs: " << LO_H1FESpace.GetNDofs() << endl;
+   cout << "pmesh_lo # cells: " << pmesh_lo->GetNE() << endl;
+
    // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
    Array<int> ess_tdofs, ess_vdofs;
@@ -598,14 +602,33 @@ int main(int argc, char *argv[])
 
    // Define the explicit ODE solver used for time integration.
    ODESolver *ode_solver = NULL;
+   ODESolver *ode_solver_LO = NULL;
    switch (ode_solver_type)
    {
-      case 1: ode_solver = new ForwardEulerSolver; break;
-      case 2: ode_solver = new RK2Solver(0.5); break;
-      case 3: ode_solver = new RK3SSPSolver; break;
-      case 4: ode_solver = new RK4Solver; break;
-      case 6: ode_solver = new RK6Solver; break;
-      case 7: ode_solver = new RK2AvgSolver; break;
+      case 1:
+         ode_solver = new ForwardEulerSolver;
+         ode_solver_LO = new ForwardEulerSolver;
+         break;
+      case 2:
+         ode_solver = new RK2Solver(0.5);
+         ode_solver_LO = new RK2Solver(0.5);
+         break;
+      case 3:
+         ode_solver = new RK3SSPSolver;
+         ode_solver_LO = new RK3SSPSolver;
+         break;
+      case 4:
+         ode_solver = new RK4Solver;
+         ode_solver_LO = new RK4Solver;
+         break;
+      case 6:
+         ode_solver = new RK6Solver;
+         ode_solver_LO = new RK6Solver;
+         break;
+      case 7:
+         ode_solver = new RK2AvgSolver;
+         ode_solver_LO = new RK2AvgSolver;
+         break;
       default:
          if (myid == 0)
          {
@@ -618,12 +641,15 @@ int main(int argc, char *argv[])
 
    const HYPRE_Int glob_size_l2 = L2FESpace.GlobalTrueVSize();
    const HYPRE_Int glob_size_h1 = H1FESpace.GlobalTrueVSize();
+   const HYPRE_Int glob_size_l2_LO = LO_L2FESpace.GlobalTrueVSize();
    if (Mpi::Root())
    {
       cout << "Number of kinematic (position, velocity) dofs: "
            << glob_size_h1 << endl;
       cout << "Number of specific internal energy dofs: "
            << glob_size_l2 << endl;
+      cout << "Number of low order DG0 dofs: "
+           << glob_size_l2_LO << endl;
    }
 
    // The monolithic BlockVector stores unknown fields as:
@@ -668,9 +694,9 @@ int main(int argc, char *argv[])
    /* Define the low order grid functions*/
    ParGridFunction x_gf_LO, sv_gf_LO, v_gf_LO, ste_gf_LO;
    x_gf_LO.MakeRef(&LO_H1FESpace, S_LO, offset_LO[0]);
-   sv_gf_LO.MakeRef(&LO_L2FESpace, S, offset_LO[1]);
-   v_gf_LO.MakeRef(&LO_L2VFESpace, S, offset_LO[2]);
-   ste_gf_LO.MakeRef(&LO_L2FESpace, S, offset_LO[3]);
+   sv_gf_LO.MakeRef(&LO_L2FESpace, S_LO, offset_LO[1]);
+   v_gf_LO.MakeRef(&LO_L2VFESpace, S_LO, offset_LO[2]);
+   ste_gf_LO.MakeRef(&LO_L2FESpace, S_LO, offset_LO[3]);
 
    // Initialize x_gf using the starting mesh coordinates.
    pmesh->SetNodalGridFunction(&x_gf);
@@ -690,7 +716,7 @@ int main(int argc, char *argv[])
    }
    // Sync the data location of v_gf with its base, S
    v_gf.SyncAliasMemory(S);
-   v_gf_LO.SyncAliasMemory(S);
+   v_gf_LO.SyncAliasMemory(S_LO);
 
    // Initialize density and specific internal energy values. We interpolate in
    // a non-positive basis to get the correct values at the dofs. Then we do an
@@ -733,6 +759,7 @@ int main(int argc, char *argv[])
    FunctionCoefficient sv_coeff(sv0_static);
    sv_coeff.SetTime(t_init);
    sv_gf_LO.ProjectCoefficient(sv_coeff);
+   sv_gf_LO.SyncAliasMemory(S_LO);
 
    // Piecewise constant ideal gas coefficient over the Lagrangian mesh. The
    // gamma values are projected on function that's constant on the moving mesh.
@@ -798,6 +825,16 @@ int main(int argc, char *argv[])
                                                  problem_class, offset, 
                                                  use_viscosity, mm, cfl);
 
+   cout << "S_LO: ";
+   S_LO.Print(cout);
+
+   /* Set options for LO */
+   hydro_LO.SetMVOption(2);
+   hydro_LO.SetMVLinOption(false);
+   hydro_LO.SetFVOption(2);
+   hydro_LO.SetProblem(problem);
+   hydro_LO.SetDensityPP(true);
+
    socketstream vis_rho, vis_v, vis_e;
    char vishost[] = "localhost";
    int  visport   = 19916;
@@ -848,9 +885,11 @@ int main(int argc, char *argv[])
    // defines the Mult() method that used by the time integrators.
    ode_solver->Init(hydro);
    hydro.ResetTimeStepEstimate();
-   double t = t_init, dt = hydro.GetTimeStepEstimate(S), t_old;
+   ode_solver_LO->Init(hydro_LO);
+   double t = t_init, t_LO = t_init, dt = hydro.GetTimeStepEstimate(S), t_old;
    bool last_step = false;
    int steps = 0;
+   BlockVector S_old_LO(S_LO);
    BlockVector S_old(S);
    long mem=0, mmax=0, msum=0;
    int checks = 0;
@@ -884,12 +923,19 @@ int main(int argc, char *argv[])
       }
       if (steps == max_tsteps) { last_step = true; }
       S_old = S;
+      S_old_LO = S_LO;
       t_old = t;
       hydro.ResetTimeStepEstimate();
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
       ode_solver->Step(S, t, dt);
+      /* Step LO forwared*/
+      hydro_LO.BuildDijMatrix(S_LO);
+      hydro_LO.UpdateMeshVelocityBCs(t_LO, dt);
+      ode_solver_LO->Step(S_LO, t_LO, dt);
+      hydro_LO.EnforceL2BC(S_LO, t_LO, dt);
+      // Increment steps
       steps++;
 
       // Adaptive time step control.
@@ -903,12 +949,15 @@ int main(int argc, char *argv[])
          { MFEM_ABORT("The time step crashed!"); }
          t = t_old;
          S = S_old;
+         t_LO = t_old;
+         S_LO = S_old_LO;
          hydro.ResetQuadratureData();
          if (Mpi::Root()) { cout << "Repeating step " << ti << endl; }
          if (steps < max_tsteps) { last_step = false; }
          ti--; continue;
       }
       else if (dt_est > 1.25 * dt) { dt *= 1.02; }
+      MFEM_WARNING("Add a check that compares the current dt to the low order cfl restricted timestep.\n");
 
       // Ensure the sub-vectors x_gf, v_gf, and e_gf know the location of the
       // data in S. This operation simply updates the Memory validity flags of
@@ -921,6 +970,14 @@ int main(int argc, char *argv[])
       // needed, because some time integrators use different S-type vectors
       // and the oper object might have redirected the mesh positions to those.
       pmesh->NewNodes(x_gf, false);
+
+      pmesh_lo->NewNodes(x_gf_LO, false);
+      double pct_corrected, rel_mass_corrected;
+      hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
+      x_gf_LO.SyncAliasMemory(S_LO);
+      sv_gf_LO.SyncAliasMemory(S_LO);
+      v_gf_LO.SyncAliasMemory(S_LO);
+      ste_gf_LO.SyncAliasMemory(S_LO);
 
       if (last_step || (ti % vis_steps) == 0)
       {
@@ -1019,6 +1076,8 @@ int main(int argc, char *argv[])
             e_ofs.close();
          }
       }
+
+      MFEM_VERIFY(t == t_LO, "Current time should be the same between high order and low order solvers.\n");
 
       // Problems checks
       if (check)
