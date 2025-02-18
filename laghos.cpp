@@ -74,10 +74,10 @@ using namespace mfem;
 static int problem, dim;
 
 // Forward declarations.
-// double e0(const Vector &);
-// double rho0(const Vector &);
-// double gamma_func(const Vector &);
-// void v0(const Vector &, Vector &);
+double e0(const Vector &);
+double rho0(const Vector &);
+double gamma_func(const Vector &);
+void v0(const Vector &, Vector &);
 
 static long GetMaxRssMB();
 static void display_banner(std::ostream&);
@@ -104,7 +104,7 @@ int main(int argc, char *argv[])
    int order_e = 1;
    int order_q = -1;
    int order_l = 1; // low-order approximation space
-   int ode_solver_type = 1;
+   int ode_solver_type = 4;
    double t_init = 0.0;
    double t_final = 0.6;
    double cfl = 0.5;
@@ -602,32 +602,26 @@ int main(int argc, char *argv[])
 
    // Define the explicit ODE solver used for time integration.
    ODESolver *ode_solver = NULL;
-   ODESolver *ode_solver_LO = NULL;
+   ODESolver *ode_solver_LO = new ForwardEulerSolver;
    switch (ode_solver_type)
    {
       case 1:
          ode_solver = new ForwardEulerSolver;
-         ode_solver_LO = new ForwardEulerSolver;
          break;
       case 2:
          ode_solver = new RK2Solver(0.5);
-         ode_solver_LO = new RK2Solver(0.5);
          break;
       case 3:
          ode_solver = new RK3SSPSolver;
-         ode_solver_LO = new RK3SSPSolver;
          break;
       case 4:
          ode_solver = new RK4Solver;
-         ode_solver_LO = new RK4Solver;
          break;
       case 6:
          ode_solver = new RK6Solver;
-         ode_solver_LO = new RK6Solver;
          break;
       case 7:
          ode_solver = new RK2AvgSolver;
-         ode_solver_LO = new RK2AvgSolver;
          break;
       default:
          if (myid == 0)
@@ -825,9 +819,6 @@ int main(int argc, char *argv[])
                                                  problem_class, offset, 
                                                  use_viscosity, mm, cfl);
 
-   cout << "S_LO: ";
-   S_LO.Print(cout);
-
    /* Set options for LO */
    hydro_LO.SetMVOption(2);
    hydro_LO.SetMVLinOption(false);
@@ -957,7 +948,7 @@ int main(int argc, char *argv[])
          ti--; continue;
       }
       else if (dt_est > 1.25 * dt) { dt *= 1.02; }
-      MFEM_WARNING("Add a check that compares the current dt to the low order cfl restricted timestep.\n");
+      // MFEM_WARNING("Add a check that compares the current dt to the low order cfl restricted timestep.\n");
 
       // Ensure the sub-vectors x_gf, v_gf, and e_gf know the location of the
       // data in S. This operation simply updates the Memory validity flags of
@@ -1153,12 +1144,14 @@ int main(int argc, char *argv[])
 
    // Free the used memory.
    delete ode_solver;
+   delete ode_solver_LO;
    delete pmesh;
+   delete pmesh_lo;
 
    return 0;
 }
 
-/*
+
 double rho0(const Vector &x)
 {
    switch (problem)
@@ -1204,11 +1197,11 @@ double gamma_func(const Vector &x)
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
-*/
+
 
 static double rad(double x, double y) { return sqrt(x*x + y*y); }
 
-/*
+
 void v0(const Vector &x, Vector &v)
 {
    const double atn = dim!=1 ? pow((x(0)*(1.0-x(0))*4*x(1)*(1.0-x(1))*4.0),
@@ -1343,7 +1336,7 @@ double e0(const Vector &x)
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
-*/
+
 
 static void display_banner(std::ostream &os)
 {
