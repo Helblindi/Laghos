@@ -817,7 +817,7 @@ int main(int argc, char *argv[])
                                                  LO_H1FESpace, LO_H1FESpace_L, 
                                                  LO_L2FESpace, LO_L2VFESpace, 
                                                  LO_CRFESpace, m, 
-                                                 problem_class, offset, 
+                                                 problem_class, offset_LO, 
                                                  use_viscosity, mm, cfl);
 
    /* Set options for LO */
@@ -1009,7 +1009,6 @@ int main(int argc, char *argv[])
          ti--; continue;
       }
       else if (dt_est > 1.25 * dt) { dt *= 1.02; }
-      // MFEM_WARNING("Add a check that compares the current dt to the low order cfl restricted timestep.\n");
 
       // Ensure the sub-vectors x_gf, v_gf, and e_gf know the location of the
       // data in S. This operation simply updates the Memory validity flags of
@@ -1024,8 +1023,8 @@ int main(int argc, char *argv[])
       pmesh->NewNodes(x_gf, false);
 
       pmesh_lo->NewNodes(x_gf_LO, false);
-      // double pct_corrected, rel_mass_corrected;
-      // hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
+      double pct_corrected, rel_mass_corrected;
+      hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
       x_gf_LO.SyncAliasMemory(S_LO);
       sv_gf_LO.SyncAliasMemory(S_LO);
       v_gf_LO.SyncAliasMemory(S_LO);
