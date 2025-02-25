@@ -63,10 +63,6 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include "laghos_solver.hpp"
-#include "laglos_solver.hpp"
-#include "mfem/fem/intrules.hpp"
-#include "test_problems_include.h"
-#include "limiter.h"
 
 using std::cout;
 using std::endl;
@@ -105,10 +101,7 @@ int main(int argc, char *argv[])
    int order_v = 2;
    int order_e = 1;
    int order_q = -1;
-   int order_l = 0; // low-order approximation space
-   bool idp_limit = true;
    int ode_solver_type = 4;
-   double t_init = 0.0;
    double t_final = 0.6;
    double cfl = 0.5;
    double cg_tol = 1e-8;
@@ -121,7 +114,7 @@ int main(int argc, char *argv[])
    int vis_steps = 5;
    bool visit = false;
    bool gfprint = false;
-   const char *basename = "results/";
+   const char *basename = "results/Laghos";
    int partition_type = 0;
    const char *device = "cpu";
    bool check = false;
@@ -148,13 +141,10 @@ int main(int argc, char *argv[])
                   "Order (degree) of the thermodynamic finite element space.");
    args.AddOption(&order_q, "-oq", "--order-intrule",
                   "Order  of the integration rule.");
-   args.AddOption(&idp_limit, "-idp", "--invariant-domain-preserving", "-no-idp", "--no-invariant-domain-preserving",
-                  "Use limiter and low order Laglos solver to ensure invariant domain is preserved.");
    args.AddOption(&ode_solver_type, "-s", "--ode-solver",
                   "ODE solver: 1 - Forward Euler,\n\t"
                   "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6,\n\t"
                   "            7 - RK2Avg.");
-   args.AddOption(&t_init, "-ti", "--t-init", "Initial time.");
    args.AddOption(&t_final, "-tf", "--t-final",
                   "Final time; start time is 0.");
    args.AddOption(&cfl, "-cfl", "--cfl", "CFL-condition number.");
@@ -416,123 +406,6 @@ int main(int argc, char *argv[])
    if (myid == 0)
    { cout << "Zones min/max: " << ne_min << " " << ne_max << endl; }
 
-   // Define the low order mesh
-   ParMesh *pmesh_lo = NULL;
-   if (order_e > 0)
-   {
-      pmesh_lo = new ParMesh(ParMesh::MakeRefined(*pmesh, order_e, BasisType::ClosedUniform));
-   }
-   else
-   {
-      pmesh_lo = new ParMesh(*pmesh);
-   }
-
-   // Set up problem
-   // const int dim_c = dim;
-   const static int dim_c = 2;
-   MFEM_WARNING("Will not get proper results from 3d tests.\n");
-   hydroLO::ProblemBase<dim_c> * problem_class = NULL;
-   switch (problem)
-   {
-      case 0: // Taylor-Green
-         problem_class = new hydroLO::TaylorGreenProblem<dim_c>();
-         break;
-      case 1: // Sedov
-         problem_class = new hydroLO::SedovLLNLProblem<dim_c>();
-         break;
-      case 2: // Sod
-         problem_class = new hydroLO::SodProblem<dim_c>();
-         break;
-      case 3: // Triple Point
-         problem_class = new hydroLO::TriplePoint<dim_c>();
-         break;
-      case 4: // gresho vortex
-      case 5: // 2D Riemann problem
-      case 6: // 2D Riemann problem
-      case 7: // 2D Rayleigh-Taylor instability
-         MFEM_ABORT("Not implemented.\n");
-      case 8: // Radial Sod
-         problem_class = new hydroLO::SodRadial<dim_c>();
-         break;
-      case 9: // Isentropic Vortex, stationary center
-         problem_class = new hydroLO::IsentropicVortex<dim_c>();
-         break;
-      case 10: // Noh
-         problem_class = new hydroLO::NohProblem<dim_c>();
-         break;
-      case 11: // Saltzmann
-         problem_class = new hydroLO::SaltzmannProblem<dim_c>();
-         break;
-      /* VDW */
-      case 12:
-         problem_class = new hydroLO::VdwTest1<dim_c>();
-         break;
-      case 13:
-         problem_class = new hydroLO::VdwTest2<dim_c>();
-         break;
-      case 14:
-         problem_class = new hydroLO::VdwTest3<dim_c>();
-         break;
-      case 15:
-         problem_class = new hydroLO::VdwTest4<dim_c>();
-         break;
-      case 16: // Kidder shell
-         problem_class = new hydroLO::KidderProblem<dim_c>();
-         break;
-      case 17: // Kidder ball
-         problem_class = new hydroLO::KidderBallProblem<dim_c>();
-         break;
-      case 18: // ICF
-         problem_class = new hydroLO::ICFProblem<dim_c>();
-         break;
-      case 21: // Sedov
-      {
-         MFEM_ABORT("Not implemented\n");
-         // assert(hmin == hmax);
-         // Vector params(2);
-         // params[0] = hmax, params[1] = pmesh->GetElementVolume(0);
-
-         // problem_class = new hydroLO::SedovProblem<dim_c>();
-         // problem_class->update(params, t_init);
-         // // TODO: Will need to modify initialization of internal energy
-         // //       if distorted meshes are used.
-         // break;
-      }
-      case 40: // Smooth
-         problem_class = new hydroLO::SmoothWave<dim_c>();
-         break;
-      case 41: // Lax
-         problem_class = new hydroLO::LaxProblem<dim_c>();
-         break;
-      case 42: // Leblanc
-         problem_class = new hydroLO::LeblancProblem<dim_c>();
-         break;
-      case 43: // Riemann Problem
-         problem_class = new hydroLO::RiemannProblem<dim_c>();
-         break;
-      case 100:
-         problem_class = new hydroLO::TestBCs<dim_c>();
-         break;
-      default:
-         MFEM_ABORT("Failed to initiate a problem.\n");
-   }
-
-   // Change class variables into static std::functions since virtual static member functions are not an option
-   // and Coefficient class requires std::function arguments
-   using namespace std::placeholders;
-   std::function<double(const Vector &,const double)> sv0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::sv0, problem_class, std::placeholders::_1, std::placeholders::_2);
-   std::function<void(const Vector &, const double, Vector &)> v0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::v0, problem_class, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-   std::function<double(const Vector &,const double)> ste0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::ste0, problem_class, std::placeholders::_1, std::placeholders::_2);
-   std::function<double(const Vector &,const double)> rho0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::rho0, problem_class, std::placeholders::_1, std::placeholders::_2);
-   std::function<double(const Vector &,const double)> p0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::p0, problem_class, std::placeholders::_1, std::placeholders::_2);
-   std::function<double(const Vector &,const double)> gamma_func_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::gamma_func, problem_class, std::placeholders::_1, std::placeholders::_2);
-
    // Define the parallel finite element spaces. We use:
    // - H1 (Gauss-Lobatto, continuous) for position and velocity.
    // - L2 (Bernstein, discontinuous) for specific internal energy.
@@ -540,36 +413,6 @@ int main(int argc, char *argv[])
    H1_FECollection H1FEC(order_v, dim);
    ParFiniteElementSpace L2FESpace(pmesh, &L2FEC);
    ParFiniteElementSpace H1FESpace(pmesh, &H1FEC, pmesh->Dimension());
-
-   // Define the parallel finite element spaces for 
-   // the low order approximation. We use:
-   // - H1 (Q2, continuous) for mesh movement.
-   // - L2 (Q0, discontinuous) for state variables
-   // - CR/RT for mesh reconstruction at nodes
-   H1_FECollection LO_H1FEC(2, dim);
-   H1_FECollection LO_H1FEC_L(1, dim);
-   L2_FECollection LO_L2FEC(0, dim, BasisType::Positive);
-   FiniteElementCollection * LO_CRFEC;
-   if (dim == 1)
-   {
-      LO_CRFEC = new CrouzeixRaviartFECollection();
-   }
-   else
-   {
-      LO_CRFEC = new RT_FECollection(0, dim);
-   }
-
-   ParFiniteElementSpace LO_H1FESpace(pmesh_lo, &LO_H1FEC, dim);
-   ParFiniteElementSpace LO_H1FESpace_L(pmesh_lo, &LO_H1FEC_L, dim);
-   /* Finite element space solely constructed for continuous representation of density field */
-   ParFiniteElementSpace LO_L2FESpace(pmesh_lo, &LO_L2FEC);
-   ParFiniteElementSpace LO_L2VFESpace(pmesh_lo, &LO_L2FEC, dim);
-   ParFiniteElementSpace LO_CRFESpace(pmesh_lo, LO_CRFEC, dim);
-
-   cout << "LO L2 dofs: " << LO_L2FESpace.GetNDofs() << endl;
-   cout << "LO H1 dofs: " << LO_H1FESpace.GetNDofs() << endl;
-   cout << "pmesh ho # cells: " << pmesh->GetNE() << endl;
-   cout << "pmesh_lo # cells: " << pmesh_lo->GetNE() << endl;
 
    // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
@@ -591,27 +434,14 @@ int main(int argc, char *argv[])
 
    // Define the explicit ODE solver used for time integration.
    ODESolver *ode_solver = NULL;
-   ODESolver *ode_solver_LO = new ForwardEulerSolver;
    switch (ode_solver_type)
    {
-      case 1:
-         ode_solver = new ForwardEulerSolver;
-         break;
-      case 2:
-         ode_solver = new RK2Solver(0.5);
-         break;
-      case 3:
-         ode_solver = new RK3SSPSolver;
-         break;
-      case 4:
-         ode_solver = new RK4Solver;
-         break;
-      case 6:
-         ode_solver = new RK6Solver;
-         break;
-      case 7:
-         ode_solver = new RK2AvgSolver;
-         break;
+      case 1: ode_solver = new ForwardEulerSolver; break;
+      case 2: ode_solver = new RK2Solver(0.5); break;
+      case 3: ode_solver = new RK3SSPSolver; break;
+      case 4: ode_solver = new RK4Solver; break;
+      case 6: ode_solver = new RK6Solver; break;
+      case 7: ode_solver = new RK2AvgSolver; break;
       default:
          if (myid == 0)
          {
@@ -624,15 +454,12 @@ int main(int argc, char *argv[])
 
    const HYPRE_Int glob_size_l2 = L2FESpace.GlobalTrueVSize();
    const HYPRE_Int glob_size_h1 = H1FESpace.GlobalTrueVSize();
-   const HYPRE_Int glob_size_l2_LO = LO_L2FESpace.GlobalTrueVSize();
    if (Mpi::Root())
    {
       cout << "Number of kinematic (position, velocity) dofs: "
            << glob_size_h1 << endl;
       cout << "Number of specific internal energy dofs: "
            << glob_size_l2 << endl;
-      cout << "Number of low order DG0 dofs: "
-           << glob_size_l2_LO << endl;
    }
 
    // The monolithic BlockVector stores unknown fields as:
@@ -648,23 +475,6 @@ int main(int argc, char *argv[])
    offset[3] = offset[2] + Vsize_l2;
    BlockVector S(offset, Device::GetMemoryType());
 
-   /* The monolithic BlockVector stores unknown fields as:
-   *   - 0 -> position
-   *   - 1 -> specific volume
-   *   - 2 -> velocity (L2V)
-   *   - 3 -> speific total energy
-   */
-   const int Vsize_l2_LO = LO_L2FESpace.GetVSize();
-   const int Vsize_l2v_LO = LO_L2VFESpace.GetVSize();
-   const int Vsize_h1_LO = LO_H1FESpace.GetVSize();
-   Array<int> offset_LO(5);
-   offset_LO[0] = 0;
-   offset_LO[1] = offset_LO[0] + Vsize_h1_LO;
-   offset_LO[2] = offset_LO[1] + Vsize_l2_LO;
-   offset_LO[3] = offset_LO[2] + Vsize_l2v_LO;
-   offset_LO[4] = offset_LO[3] + Vsize_l2_LO;
-   BlockVector S_LO(offset_LO, Device::GetMemoryType());
-
    // Define GridFunction objects for the position, velocity and specific
    // internal energy. There is no function for the density, as we can always
    // compute the density values given the current mesh position, using the
@@ -674,32 +484,20 @@ int main(int argc, char *argv[])
    v_gf.MakeRef(&H1FESpace, S, offset[1]);
    e_gf.MakeRef(&L2FESpace, S, offset[2]);
 
-   /* Define the low order grid functions*/
-   ParGridFunction x_gf_LO, rho_gf_LO(&LO_L2FESpace), sv_gf_LO, v_gf_LO, ste_gf_LO;
-   x_gf_LO.MakeRef(&LO_H1FESpace, S_LO, offset_LO[0]);
-   sv_gf_LO.MakeRef(&LO_L2FESpace, S_LO, offset_LO[1]);
-   v_gf_LO.MakeRef(&LO_L2VFESpace, S_LO, offset_LO[2]);
-   ste_gf_LO.MakeRef(&LO_L2FESpace, S_LO, offset_LO[3]);
-
    // Initialize x_gf using the starting mesh coordinates.
    pmesh->SetNodalGridFunction(&x_gf);
-   pmesh_lo->SetNodalGridFunction(&x_gf_LO);
    // Sync the data location of x_gf with its base, S
    x_gf.SyncAliasMemory(S);
-   x_gf_LO.SyncAliasMemory(S_LO);
 
    // Initialize the velocity.
-   VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0_static);
-   v_coeff.SetTime(t_init);
+   VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0);
    v_gf.ProjectCoefficient(v_coeff);
-   v_gf_LO.ProjectCoefficient(v_coeff);
    for (int i = 0; i < ess_vdofs.Size(); i++)
    {
       v_gf(ess_vdofs[i]) = 0.0;
    }
    // Sync the data location of v_gf with its base, S
    v_gf.SyncAliasMemory(S);
-   v_gf_LO.SyncAliasMemory(S_LO);
 
    // Initialize density and specific internal energy values. We interpolate in
    // a non-positive basis to get the correct values at the dofs. Then we do an
@@ -708,16 +506,10 @@ int main(int argc, char *argv[])
    // this density is a temporary function and it will not be updated during the
    // time evolution.
    ParGridFunction rho0_gf(&L2FESpace);
-   FunctionCoefficient rho0_coeff(rho0_static);
-   rho0_coeff.SetTime(t_init);
+   FunctionCoefficient rho0_coeff(rho0);
    L2_FECollection l2_fec(order_e, pmesh->Dimension());
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
    ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes);
-
-   L2_FECollection l2_fec_lo(order_l, pmesh_lo->Dimension());
-   ParFiniteElementSpace l2_fes_lo(pmesh_lo, &l2_fec_lo);
-   ParGridFunction l2_e_LO(&l2_fes_lo);
-
    l2_rho0_gf.ProjectCoefficient(rho0_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
    if (problem == 1)
@@ -726,34 +518,22 @@ int main(int argc, char *argv[])
       DeltaCoefficient e_coeff(blast_position[0], blast_position[1],
                                blast_position[2], blast_energy);
       l2_e.ProjectCoefficient(e_coeff);
-      l2_e_LO.ProjectCoefficient(e_coeff);
    }
    else
    {
-      FunctionCoefficient e_coeff(ste0_static);
-      e_coeff.SetTime(t_init);
+      FunctionCoefficient e_coeff(e0);
       l2_e.ProjectCoefficient(e_coeff);
-      l2_e_LO.ProjectCoefficient(e_coeff);
    }
    e_gf.ProjectGridFunction(l2_e);
-   ste_gf_LO.ProjectGridFunction(l2_e_LO);
    // Sync the data location of e_gf with its base, S
    e_gf.SyncAliasMemory(S);
-   ste_gf_LO.SyncAliasMemory(S_LO);
-
-   // Project low order sv
-   FunctionCoefficient sv_coeff(sv0_static);
-   sv_coeff.SetTime(t_init);
-   sv_gf_LO.ProjectCoefficient(sv_coeff);
-   sv_gf_LO.SyncAliasMemory(S_LO);
 
    // Piecewise constant ideal gas coefficient over the Lagrangian mesh. The
    // gamma values are projected on function that's constant on the moving mesh.
    L2_FECollection mat_fec(0, pmesh->Dimension());
    ParFiniteElementSpace mat_fes(pmesh, &mat_fec);
    ParGridFunction mat_gf(&mat_fes);
-   FunctionCoefficient mat_coeff(gamma_func_static);
-   mat_coeff.SetTime(t_init);
+   FunctionCoefficient mat_coeff(gamma_func);
    mat_gf.ProjectCoefficient(mat_coeff);
 
    // Additional details, depending on the problem.
@@ -768,22 +548,6 @@ int main(int argc, char *argv[])
       case 5: visc = true; break;
       case 6: visc = true; break;
       case 7: source = 2; visc = true; vorticity = true;  break;
-      case 8:
-      case 9:
-      case 10:
-      case 11:
-      case 12:
-      case 13:
-      case 14:
-      case 15:
-      case 16:
-      case 17:
-      case 18:
-      case 40:
-      case 41:
-      case 42:
-      case 43:
-      case 100: visc = true; break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
@@ -795,60 +559,12 @@ int main(int argc, char *argv[])
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q);
-   
-
-   /* Assemble initial masses for low order approximation */
-   ParLinearForm *m = new ParLinearForm(&L2FESpace);
-   m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
-   m->Assemble();
-   /* Various other parameters */
-   bool use_viscosity = true;
-   bool mm = true;
-   hydroLO::LagrangianLOOperator<dim_c> hydro_LO(S_LO.Size(), 
-                                                 LO_H1FESpace, LO_H1FESpace_L, 
-                                                 LO_L2FESpace, LO_L2VFESpace, 
-                                                 LO_CRFESpace, m, 
-                                                 problem_class, offset, 
-                                                 use_viscosity, mm, cfl);
-
-   /* Set options for LO */
-   hydro_LO.SetMVOption(2);
-   hydro_LO.SetMVLinOption(false);
-   hydro_LO.SetFVOption(2);
-   hydro_LO.SetProblem(problem);
-   hydro_LO.SetDensityPP(true);
-   hydro_LO.SetComputeMV(false);
-
-   /*** Build limiter ***/
-   IDPLimiter *idpl;
-   if (idp_limit)
-   {
-      /* Construct continuous projection spaces */
-      H1_FECollection H1FEC_LO_t(1, dim);
-      ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
-      H1_FECollection H1FEC_HO_t(order_e, dim);
-      ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t);
-
-      /* Construct mass vector */
-      ParLinearForm *mHO = new ParLinearForm(&L2FESpace);
-      mHO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
-      mHO->Assemble();
-      HypreParVector *mHO_hpv = mHO->ParallelAssemble();
-      
-      if (idp_limit)
-      {
-         idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv);
-      }
-   }
-   
 
    socketstream vis_rho, vis_v, vis_e;
    char vishost[] = "localhost";
    int  visport   = 19916;
 
-   socketstream vis_rho_LO, vis_v_LO, vis_ste_LO;
-
-   ParGridFunction rho_gf(&L2FESpace);
+   ParGridFunction rho_gf;
    if (visualization || visit) { hydro.ComputeDensity(rho_gf); }
    const double energy_init = hydro.InternalEnergy(e_gf) +
                               hydro.KineticEnergy(v_gf);
@@ -861,12 +577,9 @@ int main(int argc, char *argv[])
       vis_rho.precision(8);
       vis_v.precision(8);
       vis_e.precision(8);
-      vis_rho_LO.precision(8);
-      vis_v_LO.precision(8);
-      vis_ste_LO.precision(8);
       int Wx = 0, Wy = 0; // window position
       const int Ww = 350, Wh = 350; // window size
-      int offx = Ww+10, offy = Wh + 45; // window offsets
+      int offx = Ww+10; // window offsets
       if (problem != 0 && problem != 4)
       {
          hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
@@ -877,19 +590,6 @@ int main(int argc, char *argv[])
                                     "Velocity", Wx, Wy, Ww, Wh);
       Wx += offx;
       hydrodynamics::VisualizeField(vis_e, vishost, visport, e_gf,
-                                    "Specific Internal Energy", Wx, Wy, Ww, Wh);
-      
-      Wx = 0; Wy += offy;
-      if (problem != 0 && problem != 4)
-      {
-         hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
-                                       "Density", Wx, Wy, Ww, Wh);
-      }
-      Wx += offx;
-      hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
-                                    "Velocity", Wx, Wy, Ww, Wh);
-      Wx += offx;
-      hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
                                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
    }
 
@@ -910,11 +610,9 @@ int main(int argc, char *argv[])
    // defines the Mult() method that used by the time integrators.
    ode_solver->Init(hydro);
    hydro.ResetTimeStepEstimate();
-   ode_solver_LO->Init(hydro_LO);
-   double t = t_init, t_LO = t_init, dt = hydro.GetTimeStepEstimate(S), t_old;
+   double t = 0.0, dt = hydro.GetTimeStepEstimate(S), t_old;
    bool last_step = false;
    int steps = 0;
-   BlockVector S_old_LO(S_LO);
    BlockVector S_old(S);
    long mem=0, mmax=0, msum=0;
    int checks = 0;
@@ -948,34 +646,12 @@ int main(int argc, char *argv[])
       }
       if (steps == max_tsteps) { last_step = true; }
       S_old = S;
-      S_old_LO = S_LO;
       t_old = t;
       hydro.ResetTimeStepEstimate();
 
       // S is the vector of dofs, t is the current time, and dt is the time step
-      ParGridFunction dx;
-      /* Project HO mv onto LO space */
-      dx.MakeRef(&H1FESpace, S, Vsize_h1);
-      ParGridFunction dx_LO(&LO_H1FESpace);
-      GridTransfer *mv_gt = new InterpolationGridTransfer(H1FESpace, LO_H1FESpace);
-      const Operator &P = mv_gt->ForwardOperator();
-      P.Mult(dx, dx_LO);
-      hydro_LO.SetMV(dx_LO);
       // to advance.
       ode_solver->Step(S, t, dt);
-      /* Step LO forward*/
-      // Check cfl restriction
-      hydro_LO.CalculateTimestep(S_LO);
-      if (dt > hydro_LO.GetTimestep())
-      {
-         cout << "dt: " << dt << ", lo dt: " << hydro_LO.GetTimestep() << endl;
-         MFEM_ABORT("Time step too large.\n");
-      }
-      hydro_LO.BuildDijMatrix(S_LO);
-      hydro_LO.UpdateMeshVelocityBCs(t_LO, dt);
-      ode_solver_LO->Step(S_LO, t_LO, dt);
-      hydro_LO.EnforceL2BC(S_LO, t_LO, dt);
-      // Increment steps
       steps++;
 
       // Adaptive time step control.
@@ -989,15 +665,12 @@ int main(int argc, char *argv[])
          { MFEM_ABORT("The time step crashed!"); }
          t = t_old;
          S = S_old;
-         t_LO = t_old;
-         S_LO = S_old_LO;
          hydro.ResetQuadratureData();
          if (Mpi::Root()) { cout << "Repeating step " << ti << endl; }
          if (steps < max_tsteps) { last_step = false; }
          ti--; continue;
       }
       else if (dt_est > 1.25 * dt) { dt *= 1.02; }
-      // MFEM_WARNING("Add a check that compares the current dt to the low order cfl restricted timestep.\n");
 
       // Ensure the sub-vectors x_gf, v_gf, and e_gf know the location of the
       // data in S. This operation simply updates the Memory validity flags of
@@ -1010,26 +683,6 @@ int main(int argc, char *argv[])
       // needed, because some time integrators use different S-type vectors
       // and the oper object might have redirected the mesh positions to those.
       pmesh->NewNodes(x_gf, false);
-
-      pmesh_lo->NewNodes(x_gf_LO, false);
-      double pct_corrected, rel_mass_corrected;
-      hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
-      x_gf_LO.SyncAliasMemory(S_LO);
-      sv_gf_LO.SyncAliasMemory(S_LO);
-      v_gf_LO.SyncAliasMemory(S_LO);
-      ste_gf_LO.SyncAliasMemory(S_LO);
-
-      /* Map LO rho onto coarse HO space MIN/MAX */
-      for (int i = 0; i < sv_gf_LO.Size(); i++)
-      {
-         rho_gf_LO[i] = 1./sv_gf_LO[i];
-      }
-
-      /* Limit */
-      if (idp_limit)
-      {
-         idpl->LocalConservativeLimit(rho_gf_LO, rho_gf);
-      }
 
       if (last_step || (ti % vis_steps) == 0)
       {
@@ -1076,7 +729,7 @@ int main(int argc, char *argv[])
          {
             int Wx = 0, Wy = 0; // window position
             int Ww = 350, Wh = 350; // window size
-            int offx = Ww+10, offy = Wh + 45; // window offsets
+            int offx = Ww+10; // window offsets
             if (problem != 0 && problem != 4)
             {
                hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
@@ -1090,18 +743,6 @@ int main(int argc, char *argv[])
                                           "Specific Internal Energy",
                                           Wx, Wy, Ww,Wh);
             Wx += offx;
-            // Wx = 0; Wy += offy;
-            // if (problem != 0 && problem != 4)
-            // {
-            //    hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
-            //                                  "Density", Wx, Wy, Ww, Wh);
-            // }
-            // Wx += offx;
-            // hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
-            //                               "Velocity", Wx, Wy, Ww, Wh);
-            // Wx += offx;
-            // hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
-            //                               "Specific Internal Energy", Wx, Wy, Ww, Wh);
          }
 
          if (visit)
@@ -1140,8 +781,6 @@ int main(int argc, char *argv[])
             e_ofs.close();
          }
       }
-
-      MFEM_VERIFY(t == t_LO, "Current time should be the same between high order and low order solvers.\n");
 
       // Problems checks
       if (check)
@@ -1217,14 +856,10 @@ int main(int argc, char *argv[])
 
    // Free the used memory.
    delete ode_solver;
-   delete ode_solver_LO;
    delete pmesh;
-   delete pmesh_lo;
-   delete idpl;
 
    return 0;
 }
-
 
 double rho0(const Vector &x)
 {
@@ -1272,9 +907,7 @@ double gamma_func(const Vector &x)
    }
 }
 
-
 static double rad(double x, double y) { return sqrt(x*x + y*y); }
-
 
 void v0(const Vector &x, Vector &v)
 {
@@ -1410,7 +1043,6 @@ double e0(const Vector &x)
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
-
 
 static void display_banner(std::ostream &os)
 {
