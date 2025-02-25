@@ -64,7 +64,9 @@
 #include <sys/resource.h>
 #include "laghos_solver.hpp"
 #include "laglos_solver.hpp"
+#include "mfem/fem/intrules.hpp"
 #include "test_problems_include.h"
+#include "limiter.h"
 
 using std::cout;
 using std::endl;
@@ -103,7 +105,8 @@ int main(int argc, char *argv[])
    int order_v = 2;
    int order_e = 1;
    int order_q = -1;
-   int order_l = 1; // low-order approximation space
+   int order_l = 0; // low-order approximation space
+   bool idp_limit = true;
    int ode_solver_type = 4;
    double t_init = 0.0;
    double t_final = 0.6;
@@ -118,7 +121,7 @@ int main(int argc, char *argv[])
    int vis_steps = 5;
    bool visit = false;
    bool gfprint = false;
-   const char *basename = "results/Laghos";
+   const char *basename = "results/";
    int partition_type = 0;
    const char *device = "cpu";
    bool check = false;
@@ -145,6 +148,8 @@ int main(int argc, char *argv[])
                   "Order (degree) of the thermodynamic finite element space.");
    args.AddOption(&order_q, "-oq", "--order-intrule",
                   "Order  of the integration rule.");
+   args.AddOption(&idp_limit, "-idp", "--invariant-domain-preserving", "-no-idp", "--no-invariant-domain-preserving",
+                  "Use limiter and low order Laglos solver to ensure invariant domain is preserved.");
    args.AddOption(&ode_solver_type, "-s", "--ode-solver",
                   "ODE solver: 1 - Forward Euler,\n\t"
                   "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6,\n\t"
@@ -412,31 +417,14 @@ int main(int argc, char *argv[])
    { cout << "Zones min/max: " << ne_min << " " << ne_max << endl; }
 
    // Define the low order mesh
-   ParMesh *pmesh_lo = nullptr;
-   pmesh_lo = new ParMesh(MPI_COMM_WORLD, *pmesh);
-
-   int n_add_refinements_lo = 0;
-   switch(order_e)
+   ParMesh *pmesh_lo = NULL;
+   if (order_e > 0)
    {
-   case 1:
-      n_add_refinements_lo = 0;
-      break;
-   case 2:
-      n_add_refinements_lo = 1;
-      break;
-   case 4:
-      n_add_refinements_lo = 2;
-      break;
-   case 8:
-      n_add_refinements_lo = 3;
-      break;
-   default:
-      MFEM_ABORT("Invalid order_e to be limited. order_e must be 1,2,4,8.");
+      pmesh_lo = new ParMesh(ParMesh::MakeRefined(*pmesh, order_e, BasisType::ClosedUniform));
    }
-
-   for (int it = 0; it < n_add_refinements_lo; it++)
+   else
    {
-      pmesh_lo->UniformRefinement();
+      pmesh_lo = new ParMesh(*pmesh);
    }
 
    // Set up problem
@@ -580,6 +568,7 @@ int main(int argc, char *argv[])
 
    cout << "LO L2 dofs: " << LO_L2FESpace.GetNDofs() << endl;
    cout << "LO H1 dofs: " << LO_H1FESpace.GetNDofs() << endl;
+   cout << "pmesh ho # cells: " << pmesh->GetNE() << endl;
    cout << "pmesh_lo # cells: " << pmesh_lo->GetNE() << endl;
 
    // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
@@ -686,7 +675,7 @@ int main(int argc, char *argv[])
    e_gf.MakeRef(&L2FESpace, S, offset[2]);
 
    /* Define the low order grid functions*/
-   ParGridFunction x_gf_LO, sv_gf_LO, v_gf_LO, ste_gf_LO;
+   ParGridFunction x_gf_LO, rho_gf_LO(&LO_L2FESpace), sv_gf_LO, v_gf_LO, ste_gf_LO;
    x_gf_LO.MakeRef(&LO_H1FESpace, S_LO, offset_LO[0]);
    sv_gf_LO.MakeRef(&LO_L2FESpace, S_LO, offset_LO[1]);
    v_gf_LO.MakeRef(&LO_L2VFESpace, S_LO, offset_LO[2]);
@@ -724,7 +713,10 @@ int main(int argc, char *argv[])
    L2_FECollection l2_fec(order_e, pmesh->Dimension());
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
    ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes);
-   ParGridFunction l2_e_LO(&LO_L2FESpace);
+
+   L2_FECollection l2_fec_lo(order_l, pmesh_lo->Dimension());
+   ParFiniteElementSpace l2_fes_lo(pmesh_lo, &l2_fec_lo);
+   ParGridFunction l2_e_LO(&l2_fes_lo);
 
    l2_rho0_gf.ProjectCoefficient(rho0_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
@@ -825,12 +817,38 @@ int main(int argc, char *argv[])
    hydro_LO.SetFVOption(2);
    hydro_LO.SetProblem(problem);
    hydro_LO.SetDensityPP(true);
+   hydro_LO.SetComputeMV(false);
+
+   /*** Build limiter ***/
+   IDPLimiter *idpl;
+   if (idp_limit)
+   {
+      /* Construct continuous projection spaces */
+      H1_FECollection H1FEC_LO_t(1, dim);
+      ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
+      H1_FECollection H1FEC_HO_t(order_e, dim);
+      ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t);
+
+      /* Construct mass vector */
+      ParLinearForm *mHO = new ParLinearForm(&L2FESpace);
+      mHO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
+      mHO->Assemble();
+      HypreParVector *mHO_hpv = mHO->ParallelAssemble();
+      
+      if (idp_limit)
+      {
+         idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv);
+      }
+   }
+   
 
    socketstream vis_rho, vis_v, vis_e;
    char vishost[] = "localhost";
    int  visport   = 19916;
 
-   ParGridFunction rho_gf;
+   socketstream vis_rho_LO, vis_v_LO, vis_ste_LO;
+
+   ParGridFunction rho_gf(&L2FESpace);
    if (visualization || visit) { hydro.ComputeDensity(rho_gf); }
    const double energy_init = hydro.InternalEnergy(e_gf) +
                               hydro.KineticEnergy(v_gf);
@@ -843,9 +861,12 @@ int main(int argc, char *argv[])
       vis_rho.precision(8);
       vis_v.precision(8);
       vis_e.precision(8);
+      vis_rho_LO.precision(8);
+      vis_v_LO.precision(8);
+      vis_ste_LO.precision(8);
       int Wx = 0, Wy = 0; // window position
       const int Ww = 350, Wh = 350; // window size
-      int offx = Ww+10; // window offsets
+      int offx = Ww+10, offy = Wh + 45; // window offsets
       if (problem != 0 && problem != 4)
       {
          hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
@@ -856,6 +877,19 @@ int main(int argc, char *argv[])
                                     "Velocity", Wx, Wy, Ww, Wh);
       Wx += offx;
       hydrodynamics::VisualizeField(vis_e, vishost, visport, e_gf,
+                                    "Specific Internal Energy", Wx, Wy, Ww, Wh);
+      
+      Wx = 0; Wy += offy;
+      if (problem != 0 && problem != 4)
+      {
+         hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
+                                       "Density", Wx, Wy, Ww, Wh);
+      }
+      Wx += offx;
+      hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
+                                    "Velocity", Wx, Wy, Ww, Wh);
+      Wx += offx;
+      hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
                                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
    }
 
@@ -919,9 +953,24 @@ int main(int argc, char *argv[])
       hydro.ResetTimeStepEstimate();
 
       // S is the vector of dofs, t is the current time, and dt is the time step
+      ParGridFunction dx;
+      /* Project HO mv onto LO space */
+      dx.MakeRef(&H1FESpace, S, Vsize_h1);
+      ParGridFunction dx_LO(&LO_H1FESpace);
+      GridTransfer *mv_gt = new InterpolationGridTransfer(H1FESpace, LO_H1FESpace);
+      const Operator &P = mv_gt->ForwardOperator();
+      P.Mult(dx, dx_LO);
+      hydro_LO.SetMV(dx_LO);
       // to advance.
       ode_solver->Step(S, t, dt);
-      /* Step LO forwared*/
+      /* Step LO forward*/
+      // Check cfl restriction
+      hydro_LO.CalculateTimestep(S_LO);
+      if (dt > hydro_LO.GetTimestep())
+      {
+         cout << "dt: " << dt << ", lo dt: " << hydro_LO.GetTimestep() << endl;
+         MFEM_ABORT("Time step too large.\n");
+      }
       hydro_LO.BuildDijMatrix(S_LO);
       hydro_LO.UpdateMeshVelocityBCs(t_LO, dt);
       ode_solver_LO->Step(S_LO, t_LO, dt);
@@ -970,6 +1019,18 @@ int main(int argc, char *argv[])
       v_gf_LO.SyncAliasMemory(S_LO);
       ste_gf_LO.SyncAliasMemory(S_LO);
 
+      /* Map LO rho onto coarse HO space MIN/MAX */
+      for (int i = 0; i < sv_gf_LO.Size(); i++)
+      {
+         rho_gf_LO[i] = 1./sv_gf_LO[i];
+      }
+
+      /* Limit */
+      if (idp_limit)
+      {
+         idpl->LocalConservativeLimit(rho_gf_LO, rho_gf);
+      }
+
       if (last_step || (ti % vis_steps) == 0)
       {
          double lnorm = e_gf * e_gf, norm;
@@ -1015,7 +1076,7 @@ int main(int argc, char *argv[])
          {
             int Wx = 0, Wy = 0; // window position
             int Ww = 350, Wh = 350; // window size
-            int offx = Ww+10; // window offsets
+            int offx = Ww+10, offy = Wh + 45; // window offsets
             if (problem != 0 && problem != 4)
             {
                hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
@@ -1029,6 +1090,18 @@ int main(int argc, char *argv[])
                                           "Specific Internal Energy",
                                           Wx, Wy, Ww,Wh);
             Wx += offx;
+            // Wx = 0; Wy += offy;
+            // if (problem != 0 && problem != 4)
+            // {
+            //    hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
+            //                                  "Density", Wx, Wy, Ww, Wh);
+            // }
+            // Wx += offx;
+            // hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
+            //                               "Velocity", Wx, Wy, Ww, Wh);
+            // Wx += offx;
+            // hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
+            //                               "Specific Internal Energy", Wx, Wy, Ww, Wh);
          }
 
          if (visit)
@@ -1147,6 +1220,7 @@ int main(int argc, char *argv[])
    delete ode_solver_LO;
    delete pmesh;
    delete pmesh_lo;
+   delete idpl;
 
    return 0;
 }
