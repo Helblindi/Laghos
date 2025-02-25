@@ -682,7 +682,9 @@ int main(int argc, char *argv[])
    e_gf.MakeRef(&L2FESpace, S, offset[2]);
 
    /* Define the low order grid functions*/
-   ParGridFunction x_gf_LO, rho_gf_LO(&LO_L2FESpace), sv_gf_LO, v_gf_LO, ste_gf_LO;
+   ParGridFunction x_gf_LO, sv_gf_LO, v_gf_LO, ste_gf_LO;
+   ParGridFunction rho_gf_LO(&LO_L2FESpace), mc_gf_LO(&LO_L2FESpace);
+   mc_gf_LO = 0.; // if a cells value is 0, mass is conserved
    x_gf_LO.MakeRef(&LO_H1FESpace, S_LO, offset_LO[0]);
    sv_gf_LO.MakeRef(&LO_L2FESpace, S_LO, offset_LO[1]);
    v_gf_LO.MakeRef(&LO_L2VFESpace, S_LO, offset_LO[2]);
@@ -807,7 +809,7 @@ int main(int argc, char *argv[])
    
 
    /* Assemble initial masses for low order approximation */
-   ParLinearForm *m = new ParLinearForm(&L2FESpace);
+   ParLinearForm *m = new ParLinearForm(&LO_L2FESpace);
    m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
    m->Assemble();
    /* Various other parameters */
@@ -855,7 +857,7 @@ int main(int argc, char *argv[])
    char vishost[] = "localhost";
    int  visport   = 19916;
 
-   socketstream vis_rho_LO, vis_v_LO, vis_ste_LO;
+   socketstream vis_rho_LO, vis_v_LO, vis_ste_LO, vis_mc_LO;
 
    ParGridFunction rho_gf(&L2FESpace);
    if (visualization || visit) { hydro.ComputeDensity(rho_gf); }
@@ -873,6 +875,7 @@ int main(int argc, char *argv[])
       vis_rho_LO.precision(8);
       vis_v_LO.precision(8);
       vis_ste_LO.precision(8);
+      vis_mc_LO.precision(8);
       int Wx = 0, Wy = 0; // window position
       const int Ww = 350, Wh = 350; // window size
       int offx = Ww+10, offy = Wh + 45; // window offsets
@@ -900,6 +903,9 @@ int main(int argc, char *argv[])
       Wx += offx;
       hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
                                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
+                                    Wx += offx;
+      hydrodynamics::VisualizeField(vis_mc_LO, vishost, visport, mc_gf_LO,
+                                    "Mass loss", Wx, Wy, Ww, Wh);
    }
 
    // Save data for VisIt visualization.
@@ -1080,6 +1086,9 @@ int main(int argc, char *argv[])
             cout << endl;
          }
 
+         // Fill grid function with mass information
+         hydro_LO.CheckMassConservation(S_LO, mc_gf_LO);
+
          // Make sure all ranks have sent their 'v' solution before initiating
          // another set of GLVis connections (one from each rank):
          MPI_Barrier(pmesh->GetComm());
@@ -1102,7 +1111,8 @@ int main(int argc, char *argv[])
             hydrodynamics::VisualizeField(vis_e, vishost, visport, e_gf,
                                           "Specific Internal Energy",
                                           Wx, Wy, Ww,Wh);
-            Wx += offx;
+            
+            /* LO visualization */
             Wx = 0; Wy += offy;
             if (problem != 0 && problem != 4)
             {
@@ -1115,6 +1125,9 @@ int main(int argc, char *argv[])
             Wx += offx;
             hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
                                           "Specific Internal Energy", Wx, Wy, Ww, Wh);
+            Wx += offx;
+            hydrodynamics::VisualizeField(vis_mc_LO, vishost, visport, mc_gf_LO,
+                                          "Mass loss", Wx, Wy, Ww, Wh);
          }
 
          if (visit)
