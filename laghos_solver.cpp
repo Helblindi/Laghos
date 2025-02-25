@@ -115,6 +115,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    L2GTVSize(L2.GlobalTrueVSize()),
    block_offsets(4),
    x_gf(&H1),
+   dx_gf(&H1),
    ess_tdofs(ess_tdofs),
    dim(pmesh->Dimension()),
    NE(pmesh->GetNE()),
@@ -304,6 +305,8 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    ParGridFunction v;
    const int VsizeH1 = H1.GetVSize();
    v.MakeRef(&H1, *sptr, VsizeH1);
+   dx_gf.MakeRef(&H1, *sptr, VsizeH1);
+   // dx_gf = 0.;
    // Set dx_dt = v (explicit).
    ParGridFunction dx;
    dx.MakeRef(&H1, dS_dt, 0);

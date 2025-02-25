@@ -566,6 +566,12 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace LO_L2VFESpace(pmesh_lo, &LO_L2FEC, dim);
    ParFiniteElementSpace LO_CRFESpace(pmesh_lo, LO_CRFEC, dim);
 
+   /* Objects used to project HO velocity onto LO */
+   ParGridFunction dx(&H1FESpace);
+   ParGridFunction dx_LO(&LO_H1FESpace);
+   GridTransfer *mv_gt = new InterpolationGridTransfer(H1FESpace, LO_H1FESpace);
+   const Operator &P = mv_gt->ForwardOperator();
+
    cout << "LO L2 dofs: " << LO_L2FESpace.GetNDofs() << endl;
    cout << "LO H1 dofs: " << LO_H1FESpace.GetNDofs() << endl;
    cout << "pmesh ho # cells: " << pmesh->GetNE() << endl;
@@ -618,6 +624,7 @@ int main(int argc, char *argv[])
             cout << "Unknown ODE solver type: " << ode_solver_type << '\n';
          }
          delete pmesh;
+         delete pmesh_lo;
          MPI_Finalize();
          return 3;
    }
@@ -720,6 +727,7 @@ int main(int argc, char *argv[])
 
    l2_rho0_gf.ProjectCoefficient(rho0_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
+   rho_gf_LO.ProjectCoefficient(rho0_coeff);
    if (problem == 1)
    {
       // For the Sedov test, we use a delta function at the origin.
@@ -746,6 +754,7 @@ int main(int argc, char *argv[])
    sv_coeff.SetTime(t_init);
    sv_gf_LO.ProjectCoefficient(sv_coeff);
    sv_gf_LO.SyncAliasMemory(S_LO);
+
 
    // Piecewise constant ideal gas coefficient over the Lagrangian mesh. The
    // gamma values are projected on function that's constant on the moving mesh.
@@ -816,7 +825,7 @@ int main(int argc, char *argv[])
    hydro_LO.SetMVLinOption(false);
    hydro_LO.SetFVOption(2);
    hydro_LO.SetProblem(problem);
-   hydro_LO.SetDensityPP(true);
+   // hydro_LO.SetDensityPP(true);
    hydro_LO.SetComputeMV(false);
 
    /*** Build limiter ***/
@@ -952,29 +961,32 @@ int main(int argc, char *argv[])
       t_old = t;
       hydro.ResetTimeStepEstimate();
 
-      // S is the vector of dofs, t is the current time, and dt is the time step
-      ParGridFunction dx;
-      /* Project HO mv onto LO space */
-      dx.MakeRef(&H1FESpace, S, Vsize_h1);
-      ParGridFunction dx_LO(&LO_H1FESpace);
-      GridTransfer *mv_gt = new InterpolationGridTransfer(H1FESpace, LO_H1FESpace);
-      const Operator &P = mv_gt->ForwardOperator();
-      P.Mult(dx, dx_LO);
-      hydro_LO.SetMV(dx_LO);
-      // to advance.
-      ode_solver->Step(S, t, dt);
-      /* Step LO forward*/
+      /* Validate timestep and setup hydro for next step */
+      hydro_LO.BuildDijMatrix(S_LO);
       // Check cfl restriction
       hydro_LO.CalculateTimestep(S_LO);
       if (dt > hydro_LO.GetTimestep())
       {
-         cout << "dt: " << dt << ", lo dt: " << hydro_LO.GetTimestep() << endl;
-         MFEM_ABORT("Time step too large.\n");
+         double dt_LO = hydro_LO.GetTimestep();
+         cout << "dt: " << dt << ", lo dt: " << dt_LO << endl;
+         dt = dt_LO;
+         // MFEM_ABORT("Time step too large.\n");
       }
-      hydro_LO.BuildDijMatrix(S_LO);
       hydro_LO.UpdateMeshVelocityBCs(t_LO, dt);
+
+      // S is the vector of dofs, t is the current time, and dt is the time step
+      // to advance.
+      ode_solver->Step(S, t, dt);
+      /* Step LO forward*/
+      
+      /* Project HO mv onto LO space */
+      hydro.GetMeshVelocity(dx);
+      P.Mult(dx, dx_LO);
+      hydro_LO.SetMV(dx_LO);
+
       ode_solver_LO->Step(S_LO, t_LO, dt);
       hydro_LO.EnforceL2BC(S_LO, t_LO, dt);
+
       // Increment steps
       steps++;
 
@@ -1012,8 +1024,8 @@ int main(int argc, char *argv[])
       pmesh->NewNodes(x_gf, false);
 
       pmesh_lo->NewNodes(x_gf_LO, false);
-      double pct_corrected, rel_mass_corrected;
-      hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
+      // double pct_corrected, rel_mass_corrected;
+      // hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
       x_gf_LO.SyncAliasMemory(S_LO);
       sv_gf_LO.SyncAliasMemory(S_LO);
       v_gf_LO.SyncAliasMemory(S_LO);
@@ -1033,6 +1045,8 @@ int main(int argc, char *argv[])
 
       if (last_step || (ti % vis_steps) == 0)
       {
+         // char ch;
+         // fscanf(stdin, "%c", &ch);
          double lnorm = e_gf * e_gf, norm;
          MPI_Allreduce(&lnorm, &norm, 1, MPI_DOUBLE, MPI_SUM, pmesh->GetComm());
          if (mem_usage)
@@ -1090,18 +1104,18 @@ int main(int argc, char *argv[])
                                           "Specific Internal Energy",
                                           Wx, Wy, Ww,Wh);
             Wx += offx;
-            // Wx = 0; Wy += offy;
-            // if (problem != 0 && problem != 4)
-            // {
-            //    hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
-            //                                  "Density", Wx, Wy, Ww, Wh);
-            // }
-            // Wx += offx;
-            // hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
-            //                               "Velocity", Wx, Wy, Ww, Wh);
-            // Wx += offx;
-            // hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
-            //                               "Specific Internal Energy", Wx, Wy, Ww, Wh);
+            Wx = 0; Wy += offy;
+            if (problem != 0 && problem != 4)
+            {
+               hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
+                                             "Density", Wx, Wy, Ww, Wh);
+            }
+            Wx += offx;
+            hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
+                                          "Velocity", Wx, Wy, Ww, Wh);
+            Wx += offx;
+            hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
+                                          "Specific Internal Energy", Wx, Wy, Ww, Wh);
          }
 
          if (visit)
@@ -1218,9 +1232,13 @@ int main(int argc, char *argv[])
    // Free the used memory.
    delete ode_solver;
    delete ode_solver_LO;
-   delete pmesh;
    delete pmesh_lo;
+   delete pmesh;
    delete idpl;
+   delete problem_class;
+   delete LO_CRFEC;
+   delete m;
+   // delete mv_gt;
 
    return 0;
 }

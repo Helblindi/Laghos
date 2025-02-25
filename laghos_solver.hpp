@@ -68,6 +68,7 @@ private:
    Vector q_dt_est, q_e, e_vec, q_dx, q_dv;
    const QuadratureInterpolator *q1,*q2;
    const ParGridFunction &gamma_gf;
+
 public:
    QUpdate(const int d, const int ne, const int q1d,
            const bool visc, const bool vort,
@@ -110,6 +111,7 @@ protected:
    Array<int> block_offsets;
    // Reference to the current mesh configuration.
    mutable ParGridFunction x_gf;
+   mutable ParGridFunction dx_gf;
    const Array<int> &ess_tdofs;
    const int dim, NE, l2dofs_cnt, h1dofs_cnt, source_type;
    const double cfl;
@@ -186,6 +188,7 @@ public:
    void SolveVelocity(const Vector &S, Vector &dS_dt) const;
    void SolveEnergy(const Vector &S, const Vector &v, Vector &dS_dt) const;
    void UpdateMesh(const Vector &S) const;
+   void GetMeshVelocity(ParGridFunction &_dx_gf) const { _dx_gf = this->dx_gf; }
 
    // Calls UpdateQuadratureData to compute the new qdata.dt_estimate.
    double GetTimeStepEstimate(const Vector &S) const;
