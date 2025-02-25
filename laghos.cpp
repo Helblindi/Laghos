@@ -64,7 +64,6 @@
 #include <sys/resource.h>
 #include "laghos_solver.hpp"
 #include "laglos_solver.hpp"
-#include "mfem/fem/intrules.hpp"
 #include "test_problems_include.h"
 #include "limiter.h"
 
@@ -120,6 +119,7 @@ int main(int argc, char *argv[])
    bool visualization = false;
    int vis_steps = 5;
    bool visit = false;
+   bool pview = false;
    bool gfprint = false;
    const char *basename = "results/";
    int partition_type = 0;
@@ -177,6 +177,8 @@ int main(int argc, char *argv[])
                   "Enable or disable GLVis visualization.");
    args.AddOption(&vis_steps, "-vs", "--visualization-steps",
                   "Visualize every n-th timestep.");
+   args.AddOption(&pview, "-pview", "--paraview", "-no-pview", "--no-paraview",
+                  "Enable or disable ParaView visualization.");
    args.AddOption(&visit, "-visit", "--visit", "-no-visit", "--no-visit",
                   "Enable or disable VisIt visualization.");
    args.AddOption(&gfprint, "-print", "--print", "-no-print", "--no-print",
@@ -210,6 +212,10 @@ int main(int argc, char *argv[])
       return 1;
    }
    if (Mpi::Root()) { args.PrintOptions(cout); }
+   
+   std::string basename_LO_str = basename;
+   basename_LO_str += "LO/";
+   const char *basename_LO = basename_LO_str.c_str();
 
    // Configure the device from the command line options
    Device backend;
@@ -860,7 +866,7 @@ int main(int argc, char *argv[])
    socketstream vis_rho_LO, vis_v_LO, vis_ste_LO, vis_mc_LO;
 
    ParGridFunction rho_gf(&L2FESpace);
-   if (visualization || visit) { hydro.ComputeDensity(rho_gf); }
+   if (visualization || pview || visit) { hydro.ComputeDensity(rho_gf); }
    const double energy_init = hydro.InternalEnergy(e_gf) +
                               hydro.KineticEnergy(v_gf);
 
@@ -910,6 +916,7 @@ int main(int argc, char *argv[])
 
    // Save data for VisIt visualization.
    VisItDataCollection visit_dc(basename, pmesh);
+   VisItDataCollection visit_dc_LO(basename_LO, pmesh_lo);
    if (visit)
    {
       visit_dc.RegisterField("Density",  &rho_gf);
@@ -918,6 +925,34 @@ int main(int argc, char *argv[])
       visit_dc.SetCycle(0);
       visit_dc.SetTime(0.0);
       visit_dc.Save();
+
+      visit_dc_LO.RegisterField("Density", &rho_gf_LO);
+      visit_dc_LO.RegisterField("Velocity", &v_gf_LO);
+      visit_dc_LO.RegisterField("Specific Total Energy", &ste_gf_LO);
+      visit_dc_LO.SetCycle(0);
+      visit_dc_LO.SetTime(0.0);
+      visit_dc_LO.Save();
+   }
+
+   ParaViewDataCollection paraview_dc(basename, pmesh);
+   ParaViewDataCollection paraview_dc_LO(basename_LO, pmesh_lo);
+   if (pview)
+   {
+      paraview_dc.SetDataFormat(VTKFormat::ASCII);
+      paraview_dc.RegisterField("Density",  &rho_gf);
+      paraview_dc.RegisterField("Velocity", &v_gf);
+      paraview_dc.RegisterField("Specific Internal Energy", &e_gf);
+      paraview_dc.SetCycle(0);
+      paraview_dc.SetTime(0.0);
+      paraview_dc.Save();
+
+      paraview_dc_LO.SetDataFormat(VTKFormat::ASCII);
+      paraview_dc_LO.RegisterField("Density", &rho_gf_LO);
+      paraview_dc_LO.RegisterField("Velocity", &v_gf_LO);
+      paraview_dc_LO.RegisterField("Specific Total Energy", &ste_gf_LO);
+      paraview_dc_LO.SetCycle(0);
+      paraview_dc_LO.SetTime(0.0);
+      paraview_dc_LO.Save();
    }
 
    // Perform time-integration (looping over the time iterations, ti, with a
@@ -1093,7 +1128,7 @@ int main(int argc, char *argv[])
          // another set of GLVis connections (one from each rank):
          MPI_Barrier(pmesh->GetComm());
 
-         if (visualization || visit || gfprint) { hydro.ComputeDensity(rho_gf); }
+         if (visualization || pview || visit || gfprint) { hydro.ComputeDensity(rho_gf); }
          if (visualization)
          {
             int Wx = 0, Wy = 0; // window position
@@ -1135,6 +1170,21 @@ int main(int argc, char *argv[])
             visit_dc.SetCycle(ti);
             visit_dc.SetTime(t);
             visit_dc.Save();
+
+            visit_dc_LO.SetCycle(ti);
+            visit_dc_LO.SetTime(t);
+            visit_dc_LO.Save();
+         }
+
+         if (pview)
+         {
+            paraview_dc.SetCycle(ti);
+            paraview_dc.SetTime(t);
+            paraview_dc.Save();
+
+            paraview_dc_LO.SetCycle(ti);
+            paraview_dc_LO.SetTime(t);
+            paraview_dc_LO.Save();
          }
 
          if (gfprint)
