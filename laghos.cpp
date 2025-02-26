@@ -841,25 +841,25 @@ int main(int argc, char *argv[])
 
    /*** Build limiter ***/
    IDPLimiter *idpl;
+   // if (idp_limit)
+   // {
+   /* Construct continuous projection spaces */
+   H1_FECollection H1FEC_LO_t(1, dim);
+   ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
+   H1_FECollection H1FEC_HO_t(order_e, dim);
+   ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t);
+
+   /* Construct mass vector */
+   ParLinearForm *mHO = new ParLinearForm(&L2FESpace);
+   mHO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
+   mHO->Assemble();
+   HypreParVector *mHO_hpv = mHO->ParallelAssemble();
+   
    if (idp_limit)
    {
-      /* Construct continuous projection spaces */
-      H1_FECollection H1FEC_LO_t(1, dim);
-      ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
-      H1_FECollection H1FEC_HO_t(order_e, dim);
-      ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t);
-
-      /* Construct mass vector */
-      ParLinearForm *mHO = new ParLinearForm(&L2FESpace);
-      mHO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
-      mHO->Assemble();
-      HypreParVector *mHO_hpv = mHO->ParallelAssemble();
-      
-      if (idp_limit)
-      {
-         idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv);
-      }
+      idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv);
    }
+   // }
    
 
    socketstream vis_rho, vis_v, vis_e;
