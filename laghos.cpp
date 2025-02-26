@@ -1068,7 +1068,7 @@ int main(int argc, char *argv[])
 
       pmesh_lo->NewNodes(x_gf_LO, false);
       double pct_corrected, rel_mass_corrected;
-      // hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
+      hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
       x_gf_LO.SyncAliasMemory(S_LO);
       sv_gf_LO.SyncAliasMemory(S_LO);
       v_gf_LO.SyncAliasMemory(S_LO);
