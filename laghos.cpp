@@ -789,8 +789,8 @@ int main(int argc, char *argv[])
       case 6: visc = true; break;
       case 7: source = 2; visc = true; vorticity = true;  break;
       case 8:
-      case 9:
-      case 10:
+      case 9: visc = true; break;
+      case 10: visc = true; break;
       case 11:
       case 12:
       case 13:
