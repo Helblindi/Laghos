@@ -104,7 +104,8 @@ int main(int argc, char *argv[])
    int order_v = 2;
    int order_e = 1;
    int order_q = -1;
-   int order_l = 0; // low-order approximation space
+   int order_e_lo = 0; // low-order approximation space
+   int order_v_lo = 1;
    bool idp_limit = true;
    int ode_solver_type = 4;
    double t_init = 0.0;
@@ -146,6 +147,8 @@ int main(int argc, char *argv[])
                   "Order (degree) of the kinematic finite element space.");
    args.AddOption(&order_e, "-ot", "--order-thermo",
                   "Order (degree) of the thermodynamic finite element space.");
+   args.AddOption(&order_v_lo, "-oklo", "--order-kinematic-lo",
+                  "Order (degree) of the kinematic finite element space of Low order approx.");
    args.AddOption(&order_q, "-oq", "--order-intrule",
                   "Order  of the integration rule.");
    args.AddOption(&idp_limit, "-idp", "--invariant-domain-preserving", "-no-idp", "--no-invariant-domain-preserving",
@@ -552,9 +555,9 @@ int main(int argc, char *argv[])
    // - H1 (Q2, continuous) for mesh movement.
    // - L2 (Q0, discontinuous) for state variables
    // - CR/RT for mesh reconstruction at nodes
-   H1_FECollection LO_H1FEC(2, dim);
+   H1_FECollection LO_H1FEC(order_v_lo, dim);
    H1_FECollection LO_H1FEC_L(1, dim);
-   L2_FECollection LO_L2FEC(0, dim, BasisType::Positive);
+   L2_FECollection LO_L2FEC(order_e_lo, dim, BasisType::Positive);
    FiniteElementCollection * LO_CRFEC;
    if (dim == 1)
    {
@@ -729,7 +732,7 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
    ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes);
 
-   L2_FECollection l2_fec_lo(order_l, pmesh_lo->Dimension());
+   L2_FECollection l2_fec_lo(order_e_lo, pmesh_lo->Dimension());
    ParFiniteElementSpace l2_fes_lo(pmesh_lo, &l2_fec_lo);
    ParGridFunction l2_e_LO(&l2_fes_lo);
 
@@ -1065,7 +1068,7 @@ int main(int argc, char *argv[])
 
       pmesh_lo->NewNodes(x_gf_LO, false);
       double pct_corrected, rel_mass_corrected;
-      hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
+      // hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
       x_gf_LO.SyncAliasMemory(S_LO);
       sv_gf_LO.SyncAliasMemory(S_LO);
       v_gf_LO.SyncAliasMemory(S_LO);
