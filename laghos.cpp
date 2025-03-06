@@ -63,6 +63,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include "laghos_solver.hpp"
+#include "test_problems_include.h"
 
 using std::cout;
 using std::endl;
@@ -72,10 +73,10 @@ using namespace mfem;
 static int problem, dim;
 
 // Forward declarations.
-double e0(const Vector &);
-double rho0(const Vector &);
-double gamma_func(const Vector &);
-void v0(const Vector &, Vector &);
+// double e0(const Vector &);
+// double rho0(const Vector &);
+// double gamma_func(const Vector &);
+// void v0(const Vector &, Vector &);
 
 static long GetMaxRssMB();
 static void display_banner(std::ostream&);
@@ -403,8 +404,118 @@ int main(int argc, char *argv[])
    int NE = pmesh->GetNE(), ne_min, ne_max;
    MPI_Reduce(&NE, &ne_min, 1, MPI_INT, MPI_MIN, 0, pmesh->GetComm());
    MPI_Reduce(&NE, &ne_max, 1, MPI_INT, MPI_MAX, 0, pmesh->GetComm());
+   double hmin, hmax, kmin, kmax;
+   pmesh->GetCharacteristics(hmin, hmax, kmin, kmax);
    if (myid == 0)
    { cout << "Zones min/max: " << ne_min << " " << ne_max << endl; }
+
+   // Set up problem
+   // const int dim_c = dim;
+   const static int dim_c = 2;
+   MFEM_WARNING("Will not get proper results from 3d tests.\n");
+   hydroLO::ProblemBase<dim_c> * problem_class = NULL;
+   switch (problem)
+   {
+      case 0: // Taylor-Green
+         problem_class = new hydroLO::TaylorGreenProblem<dim_c>();
+         break;
+      case 1: // Sedov
+         problem_class = new hydroLO::SedovLLNLProblem<dim_c>();
+         break;
+      case 2: // Sod
+         problem_class = new hydroLO::SodProblem<dim_c>();
+         break;
+      case 3: // Triple Point
+         problem_class = new hydroLO::TriplePoint<dim_c>();
+         break;
+      case 4: // gresho vortex
+      case 5: // 2D Riemann problem
+      case 6: // 2D Riemann problem
+      case 7: // 2D Rayleigh-Taylor instability
+         MFEM_ABORT("Not implemented.\n");
+      case 8: // Radial Sod
+         problem_class = new hydroLO::SodRadial<dim_c>();
+         break;
+      case 9: // Isentropic Vortex, stationary center
+         problem_class = new hydroLO::IsentropicVortex<dim_c>();
+         break;
+      case 10: // Noh
+         problem_class = new hydroLO::NohProblem<dim_c>();
+         break;
+      case 11: // Saltzmann
+         problem_class = new hydroLO::SaltzmannProblem<dim_c>();
+         break;
+      /* VDW */
+      case 12:
+         problem_class = new hydroLO::VdwTest1<dim_c>();
+         break;
+      case 13:
+         problem_class = new hydroLO::VdwTest2<dim_c>();
+         break;
+      case 14:
+         problem_class = new hydroLO::VdwTest3<dim_c>();
+         break;
+      case 15:
+         problem_class = new hydroLO::VdwTest4<dim_c>();
+         break;
+      case 16: // Kidder shell
+         problem_class = new hydroLO::KidderProblem<dim_c>();
+         break;
+      case 17: // Kidder ball
+         problem_class = new hydroLO::KidderBallProblem<dim_c>();
+         break;
+      case 18: // ICF
+         problem_class = new hydroLO::ICFProblem<dim_c>();
+         break;
+      case 21: // Sedov
+      {
+         MFEM_ABORT("Not implemented\n");
+         // assert(hmin == hmax);
+         // Vector params(2);
+         // params[0] = hmax, params[1] = pmesh->GetElementVolume(0);
+
+         // problem_class = new hydroLO::SedovProblem<dim_c>();
+         // problem_class->update(params, t_init);
+         // // TODO: Will need to modify initialization of internal energy
+         // //       if distorted meshes are used.
+         // break;
+      }
+      case 40: // Smooth
+         problem_class = new hydroLO::SmoothWave<dim_c>();
+         break;
+      case 41: // Lax
+         problem_class = new hydroLO::LaxProblem<dim_c>();
+         break;
+      case 42: // Leblanc
+         problem_class = new hydroLO::LeblancProblem<dim_c>();
+         break;
+      case 43: // Riemann Problem
+         problem_class = new hydroLO::RiemannProblem<dim_c>();
+         break;
+      case 100:
+         problem_class = new hydroLO::TestBCs<dim_c>();
+         break;
+      default:
+         MFEM_ABORT("Failed to initiate a problem.\n");
+   }
+
+   // Change class variables into static std::functions since virtual static member functions are not an option
+   // and Coefficient class requires std::function arguments
+   // using namespace std::placeholders;
+   std::function<double(const Vector &,const double)> sv0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::sv0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   std::function<void(const Vector &, const double, Vector &)> v0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::v0, problem_class, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+   std::function<double(const Vector &,const double)> ste0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::ste0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   // std::function<double(const Vector &,const double)> sie0_static =
+   //    std::bind(&hydroLO::ProblemBase<dim_c>::sie0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   std::function<double(const Vector &,const double)> rho0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::rho0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   std::function<double(const Vector &,const double)> p0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::p0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   std::function<double(const Vector &,const double)> gamma_func_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::gamma_func, problem_class, std::placeholders::_1, std::placeholders::_2);
 
    // Define the parallel finite element spaces. We use:
    // - H1 (Gauss-Lobatto, continuous) for position and velocity.
@@ -490,7 +601,7 @@ int main(int argc, char *argv[])
    x_gf.SyncAliasMemory(S);
 
    // Initialize the velocity.
-   VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0);
+   VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0_static);
    v_gf.ProjectCoefficient(v_coeff);
    for (int i = 0; i < ess_vdofs.Size(); i++)
    {
@@ -506,7 +617,7 @@ int main(int argc, char *argv[])
    // this density is a temporary function and it will not be updated during the
    // time evolution.
    ParGridFunction rho0_gf(&L2FESpace);
-   FunctionCoefficient rho0_coeff(rho0);
+   FunctionCoefficient rho0_coeff(rho0_static);
    L2_FECollection l2_fec(order_e, pmesh->Dimension());
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
    ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes);
@@ -521,7 +632,7 @@ int main(int argc, char *argv[])
    }
    else
    {
-      FunctionCoefficient e_coeff(e0);
+      FunctionCoefficient e_coeff(ste0_static);
       l2_e.ProjectCoefficient(e_coeff);
    }
    e_gf.ProjectGridFunction(l2_e);
@@ -533,7 +644,7 @@ int main(int argc, char *argv[])
    L2_FECollection mat_fec(0, pmesh->Dimension());
    ParFiniteElementSpace mat_fes(pmesh, &mat_fec);
    ParGridFunction mat_gf(&mat_fes);
-   FunctionCoefficient mat_coeff(gamma_func);
+   FunctionCoefficient mat_coeff(gamma_func_static);
    mat_gf.ProjectCoefficient(mat_coeff);
 
    // Additional details, depending on the problem.
@@ -848,6 +959,146 @@ int main(int argc, char *argv[])
       }
    }
 
+   /*
+   For all test cases in which we have an exact solution,
+   compute the error for convergence testing
+   */
+   if (problem_class->has_exact_solution())
+   {
+      hydro.ComputeDensity(rho_gf);
+
+      ostringstream convergence_filename;
+      convergence_filename << basename << "/convergence/np" << num_tasks;
+
+      /* Coefficient to assist in computation of errors */
+      ConstantCoefficient zero(0.0);
+      
+      /* Values to store numerators, to be computed on case by case basis since exact solutions vary */
+      double rho_L1_error_n = 0., vel_L1_error_n = 0., ste_L1_error_n = 0.,
+             rho_L2_error_n = 0., vel_L2_error_n = 0., ste_L2_error_n = 0.,
+             rho_Max_error_n = 0., vel_Max_error_n = 0., ste_Max_error_n = 0.;
+
+      /* Set coefficients to final time */
+      FunctionCoefficient rho_coeff(rho0_static);
+      rho_coeff.SetTime(t);
+      v_coeff.SetTime(t);
+      FunctionCoefficient ste_coeff(ste0_static);
+      ste_coeff.SetTime(t);
+      // FunctionCoefficient sv_coeff(sv0_static);
+      // sv_coeff.SetTime(t);
+
+      if (problem_class->get_indicator() == "Vdw1")
+      {
+         problem_class->update(x_gf, t);
+      }
+
+      // Compute errors
+      ParGridFunction rho_ex_gf(&L2FESpace), vel_ex_gf(&H1FESpace), ste_ex_gf(&L2FESpace), sv_ex_gf(&L2FESpace);
+      rho_ex_gf.ProjectCoefficient(rho_coeff);
+      vel_ex_gf.ProjectCoefficient(v_coeff);
+      ste_ex_gf.ProjectCoefficient(ste_coeff);
+      // sv_ex_gf.ProjectCoefficient(sv_coeff);
+
+      // In the case of the Noh Problem, project 0 on the boundary of approx and exact
+      if (problem_class->get_indicator() == "Noh")
+      {
+         MFEM_ABORT("Issue with computing error for Noh problem.\n");
+         // cout << "[Noh] Projecting zero on the boundary cells.\n";
+         // ParGridFunction cell_bdr_flag_gf;
+         // hydro.GetCellBdrFlagGF(cell_bdr_flag_gf);
+
+         // for (int i = 0; i < pmesh->GetNE(); i++)
+         // {
+         //    if (cell_bdr_flag_gf[i] != -1)
+         //    {
+         //       // We have a boundary cell
+         //       rho_gf[i] = 0.;
+         //       e_gf[i] = 0.;
+         //       rho_ex_gf[i] = 0.;
+         //       ste_ex_gf[i] = 0.;
+         //       sv_ex_gf[i] = 0.;
+         //       for (int j = 0; j < dim; j++)
+         //       {
+         //          int index = i + j*pmesh->GetNE();
+         //          v_gf[index] = 0.;
+         //          vel_ex_gf[index] = 0.;
+         //       }
+         //    }
+         // }
+      }
+
+      /* Exact grid function shows inf */
+      // e_gf.Print(cout);
+      // cout << "---\n";
+      // ste_ex_gf.Print(cout);
+      // ste_ex_gf[0] = e_gf[0];
+
+      /* Compute relative errors */
+      GridFunctionCoefficient rho_ex_coeff(&rho_ex_gf), vel_ex_coeff(&vel_ex_gf), ste_ex_coeff(&ste_ex_gf), sv_ex_coeff(&sv_ex_gf);
+      
+      // Velocity errors
+      vel_L1_error_n = v_gf.ComputeL1Error(vel_ex_coeff) / vel_ex_gf.ComputeL1Error(zero);
+      vel_L2_error_n = v_gf.ComputeL2Error(vel_ex_coeff) / vel_ex_gf.ComputeL2Error(zero);
+      vel_Max_error_n = v_gf.ComputeMaxError(vel_ex_coeff) / vel_ex_gf.ComputeMaxError(zero);
+      
+      rho_L1_error_n = rho_gf.ComputeL1Error(rho_ex_coeff) / rho_ex_gf.ComputeL1Error(zero);
+      rho_L2_error_n = rho_gf.ComputeL2Error(rho_ex_coeff) / rho_ex_gf.ComputeL2Error(zero);
+      rho_Max_error_n = rho_gf.ComputeMaxError(rho_ex_coeff) / rho_ex_gf.ComputeMaxError(zero);
+
+      ste_L1_error_n = e_gf.ComputeL1Error(ste_ex_coeff) / ste_ex_gf.ComputeL1Error(zero);
+      ste_L2_error_n = e_gf.ComputeL2Error(ste_ex_coeff) / ste_ex_gf.ComputeL2Error(zero);
+      ste_Max_error_n = e_gf.ComputeMaxError(ste_ex_coeff) / ste_ex_gf.ComputeMaxError(zero);
+
+      /* Get composite errors values, will return 0 if exact solution is not known */
+      const double L1_error = (rho_L1_error_n + vel_L1_error_n + ste_L1_error_n) / 3.;
+      const double L2_error = (rho_L2_error_n + vel_L2_error_n + ste_L2_error_n) / 3.;
+      const double Max_error = (rho_Max_error_n + vel_Max_error_n + ste_Max_error_n) / 3.;
+
+      /* In either case, write convergence file. */
+      if (Mpi::Root())
+      {
+         if (rs_levels != 0) {
+            convergence_filename << "_s" << setfill('0') << setw(2) << rs_levels;
+         }
+         if (rp_levels != 0) {
+            convergence_filename << "_p" << setfill('0') << setw(2) << rp_levels;
+         }
+         convergence_filename << "_refinement_"
+                              << setfill('0') << setw(2)
+                              << to_string(rp_levels + rs_levels)
+                              << ".out";
+         ofstream convergence_file(convergence_filename.str().c_str());
+         convergence_file.precision(8);
+         convergence_file << "Processor_Runtime " << "1." << "\n"
+                           << "n_processes " << num_tasks << "\n"
+                           << "n_refinements "
+                           << to_string(rp_levels + rs_levels) << "\n"
+                           << "n_Dofs " << glob_size_l2 << "\n"
+                           << "h " << hmin << "\n"
+                           // rho
+                           << "rho_L1_Error " << rho_L1_error_n << "\n"
+                           << "rho_L2_Error " << rho_L2_error_n << "\n"
+                           << "rho_Linf_Error " << rho_Max_error_n << "\n"
+                           // vel
+                           << "vel_L1_Error " << vel_L1_error_n << "\n"
+                           << "vel_L2_Error " << vel_L2_error_n << "\n"
+                           << "vel_Linf_Error " << vel_Max_error_n << "\n"
+                           // ste
+                           << "ste_L1_Error " << ste_L1_error_n << "\n"
+                           << "ste_L2_Error " << ste_L2_error_n << "\n"
+                           << "ste_Linf_Error " << ste_Max_error_n << "\n"
+                           // total
+                           << "L1_Error " << L1_error << "\n"
+                           << "L2_Error " << L2_error << "\n"
+                           << "Linf_Error " << Max_error << "\n"
+                           << "mass_loss " << 0. << "\n"
+                           << "dt " << dt << "\n"
+                           << "Endtime " << t << "\n";
+                     
+         convergence_file.close();
+      }
+   } // End error computation
+
    if (visualization)
    {
       vis_v.close();
@@ -861,188 +1112,188 @@ int main(int argc, char *argv[])
    return 0;
 }
 
-double rho0(const Vector &x)
-{
-   switch (problem)
-   {
-      case 0: return 1.0;
-      case 1: return 1.0;
-      case 2: return (x(0) < 0.5) ? 1.0 : 0.1;
-      case 3: return (dim == 2) ? (x(0) > 1.0 && x(1) > 1.5) ? 0.125 : 1.0
-                        : x(0) > 1.0 && ((x(1) < 1.5 && x(2) < 1.5) ||
-                                         (x(1) > 1.5 && x(2) > 1.5)) ? 0.125 : 1.0;
-      case 4: return 1.0;
-      case 5:
-      {
-         if (x(0) >= 0.5 && x(1) >= 0.5) { return 0.5313; }
-         if (x(0) <  0.5 && x(1) <  0.5) { return 0.8; }
-         return 1.0;
-      }
-      case 6:
-      {
-         if (x(0) <  0.5 && x(1) >= 0.5) { return 2.0; }
-         if (x(0) >= 0.5 && x(1) <  0.5) { return 3.0; }
-         return 1.0;
-      }
-      case 7: return x(1) >= 0.0 ? 2.0 : 1.0;
-      default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
-   }
-}
+// double rho0(const Vector &x)
+// {
+//    switch (problem)
+//    {
+//       case 0: return 1.0;
+//       case 1: return 1.0;
+//       case 2: return (x(0) < 0.5) ? 1.0 : 0.1;
+//       case 3: return (dim == 2) ? (x(0) > 1.0 && x(1) > 1.5) ? 0.125 : 1.0
+//                         : x(0) > 1.0 && ((x(1) < 1.5 && x(2) < 1.5) ||
+//                                          (x(1) > 1.5 && x(2) > 1.5)) ? 0.125 : 1.0;
+//       case 4: return 1.0;
+//       case 5:
+//       {
+//          if (x(0) >= 0.5 && x(1) >= 0.5) { return 0.5313; }
+//          if (x(0) <  0.5 && x(1) <  0.5) { return 0.8; }
+//          return 1.0;
+//       }
+//       case 6:
+//       {
+//          if (x(0) <  0.5 && x(1) >= 0.5) { return 2.0; }
+//          if (x(0) >= 0.5 && x(1) <  0.5) { return 3.0; }
+//          return 1.0;
+//       }
+//       case 7: return x(1) >= 0.0 ? 2.0 : 1.0;
+//       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
+//    }
+// }
 
-double gamma_func(const Vector &x)
-{
-   switch (problem)
-   {
-      case 0: return 5.0 / 3.0;
-      case 1: return 1.4;
-      case 2: return 1.4;
-      case 3:
-         if (dim == 1) { return (x(0) > 0.5) ? 1.4 : 1.5; }
-         else { return (x(0) > 1.0 && x(1) <= 1.5) ? 1.4 : 1.5; }
-      case 4: return 5.0 / 3.0;
-      case 5: return 1.4;
-      case 6: return 1.4;
-      case 7: return 5.0 / 3.0;
-      default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
-   }
-}
+// double gamma_func(const Vector &x)
+// {
+//    switch (problem)
+//    {
+//       case 0: return 5.0 / 3.0;
+//       case 1: return 1.4;
+//       case 2: return 1.4;
+//       case 3:
+//          if (dim == 1) { return (x(0) > 0.5) ? 1.4 : 1.5; }
+//          else { return (x(0) > 1.0 && x(1) <= 1.5) ? 1.4 : 1.5; }
+//       case 4: return 5.0 / 3.0;
+//       case 5: return 1.4;
+//       case 6: return 1.4;
+//       case 7: return 5.0 / 3.0;
+//       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
+//    }
+// }
 
 static double rad(double x, double y) { return sqrt(x*x + y*y); }
 
-void v0(const Vector &x, Vector &v)
-{
-   const double atn = dim!=1 ? pow((x(0)*(1.0-x(0))*4*x(1)*(1.0-x(1))*4.0),
-                                   0.4) : 0.0;
-   switch (problem)
-   {
-      case 0:
-         v(0) =  sin(M_PI*x(0)) * cos(M_PI*x(1));
-         v(1) = -cos(M_PI*x(0)) * sin(M_PI*x(1));
-         if (x.Size() == 3)
-         {
-            v(0) *= cos(M_PI*x(2));
-            v(1) *= cos(M_PI*x(2));
-            v(2) = 0.0;
-         }
-         break;
-      case 1: v = 0.0; break;
-      case 2: v = 0.0; break;
-      case 3: v = 0.0; break;
-      case 4:
-      {
-         v = 0.0;
-         const double r = rad(x(0), x(1));
-         if (r < 0.2)
-         {
-            v(0) =  5.0 * x(1);
-            v(1) = -5.0 * x(0);
-         }
-         else if (r < 0.4)
-         {
-            v(0) =  2.0 * x(1) / r - 5.0 * x(1);
-            v(1) = -2.0 * x(0) / r + 5.0 * x(0);
-         }
-         else { }
-         break;
-      }
-      case 5:
-      {
-         v = 0.0;
-         if (x(0) >= 0.5 && x(1) >= 0.5) { v(0)=0.0*atn, v(1)=0.0*atn; return;}
-         if (x(0) <  0.5 && x(1) >= 0.5) { v(0)=0.7276*atn, v(1)=0.0*atn; return;}
-         if (x(0) <  0.5 && x(1) <  0.5) { v(0)=0.0*atn, v(1)=0.0*atn; return;}
-         if (x(0) >= 0.5 && x(1) <  0.5) { v(0)=0.0*atn, v(1)=0.7276*atn; return; }
-         MFEM_ABORT("Error in problem 5!");
-         return;
-      }
-      case 6:
-      {
-         v = 0.0;
-         if (x(0) >= 0.5 && x(1) >= 0.5) { v(0)=+0.75*atn, v(1)=-0.5*atn; return;}
-         if (x(0) <  0.5 && x(1) >= 0.5) { v(0)=+0.75*atn, v(1)=+0.5*atn; return;}
-         if (x(0) <  0.5 && x(1) <  0.5) { v(0)=-0.75*atn, v(1)=+0.5*atn; return;}
-         if (x(0) >= 0.5 && x(1) <  0.5) { v(0)=-0.75*atn, v(1)=-0.5*atn; return;}
-         MFEM_ABORT("Error in problem 6!");
-         return;
-      }
-      case 7:
-      {
-         v = 0.0;
-         v(1) = 0.02 * exp(-2*M_PI*x(1)*x(1)) * cos(2*M_PI*x(0));
-         break;
-      }
-      default: MFEM_ABORT("Bad number given for problem id!");
-   }
-}
+// void v0(const Vector &x, Vector &v)
+// {
+//    const double atn = dim!=1 ? pow((x(0)*(1.0-x(0))*4*x(1)*(1.0-x(1))*4.0),
+//                                    0.4) : 0.0;
+//    switch (problem)
+//    {
+//       case 0:
+//          v(0) =  sin(M_PI*x(0)) * cos(M_PI*x(1));
+//          v(1) = -cos(M_PI*x(0)) * sin(M_PI*x(1));
+//          if (x.Size() == 3)
+//          {
+//             v(0) *= cos(M_PI*x(2));
+//             v(1) *= cos(M_PI*x(2));
+//             v(2) = 0.0;
+//          }
+//          break;
+//       case 1: v = 0.0; break;
+//       case 2: v = 0.0; break;
+//       case 3: v = 0.0; break;
+//       case 4:
+//       {
+//          v = 0.0;
+//          const double r = rad(x(0), x(1));
+//          if (r < 0.2)
+//          {
+//             v(0) =  5.0 * x(1);
+//             v(1) = -5.0 * x(0);
+//          }
+//          else if (r < 0.4)
+//          {
+//             v(0) =  2.0 * x(1) / r - 5.0 * x(1);
+//             v(1) = -2.0 * x(0) / r + 5.0 * x(0);
+//          }
+//          else { }
+//          break;
+//       }
+//       case 5:
+//       {
+//          v = 0.0;
+//          if (x(0) >= 0.5 && x(1) >= 0.5) { v(0)=0.0*atn, v(1)=0.0*atn; return;}
+//          if (x(0) <  0.5 && x(1) >= 0.5) { v(0)=0.7276*atn, v(1)=0.0*atn; return;}
+//          if (x(0) <  0.5 && x(1) <  0.5) { v(0)=0.0*atn, v(1)=0.0*atn; return;}
+//          if (x(0) >= 0.5 && x(1) <  0.5) { v(0)=0.0*atn, v(1)=0.7276*atn; return; }
+//          MFEM_ABORT("Error in problem 5!");
+//          return;
+//       }
+//       case 6:
+//       {
+//          v = 0.0;
+//          if (x(0) >= 0.5 && x(1) >= 0.5) { v(0)=+0.75*atn, v(1)=-0.5*atn; return;}
+//          if (x(0) <  0.5 && x(1) >= 0.5) { v(0)=+0.75*atn, v(1)=+0.5*atn; return;}
+//          if (x(0) <  0.5 && x(1) <  0.5) { v(0)=-0.75*atn, v(1)=+0.5*atn; return;}
+//          if (x(0) >= 0.5 && x(1) <  0.5) { v(0)=-0.75*atn, v(1)=-0.5*atn; return;}
+//          MFEM_ABORT("Error in problem 6!");
+//          return;
+//       }
+//       case 7:
+//       {
+//          v = 0.0;
+//          v(1) = 0.02 * exp(-2*M_PI*x(1)*x(1)) * cos(2*M_PI*x(0));
+//          break;
+//       }
+//       default: MFEM_ABORT("Bad number given for problem id!");
+//    }
+// }
 
-double e0(const Vector &x)
-{
-   switch (problem)
-   {
-      case 0:
-      {
-         const double denom = 2.0 / 3.0;  // (5/3 - 1) * density.
-         double val;
-         if (x.Size() == 2)
-         {
-            val = 1.0 + (cos(2*M_PI*x(0)) + cos(2*M_PI*x(1))) / 4.0;
-         }
-         else
-         {
-            val = 100.0 + ((cos(2*M_PI*x(2)) + 2) *
-                           (cos(2*M_PI*x(0)) + cos(2*M_PI*x(1))) - 2) / 16.0;
-         }
-         return val/denom;
-      }
-      case 1: return 0.0; // This case in initialized in main().
-      case 2: return (x(0) < 0.5) ? 1.0 / rho0(x) / (gamma_func(x) - 1.0)
-                        : 0.1 / rho0(x) / (gamma_func(x) - 1.0);
-      case 3: return (x(0) > 1.0) ? 0.1 / rho0(x) / (gamma_func(x) - 1.0)
-                        : 1.0 / rho0(x) / (gamma_func(x) - 1.0);
-      case 4:
-      {
-         const double r = rad(x(0), x(1)), rsq = x(0) * x(0) + x(1) * x(1);
-         const double gamma = 5.0 / 3.0;
-         if (r < 0.2)
-         {
-            return (5.0 + 25.0 / 2.0 * rsq) / (gamma - 1.0);
-         }
-         else if (r < 0.4)
-         {
-            const double t1 = 9.0 - 4.0 * log(0.2) + 25.0 / 2.0 * rsq;
-            const double t2 = 20.0 * r - 4.0 * log(r);
-            return (t1 - t2) / (gamma - 1.0);
-         }
-         else { return (3.0 + 4.0 * log(2.0)) / (gamma - 1.0); }
-      }
-      case 5:
-      {
-         const double irg = 1.0 / rho0(x) / (gamma_func(x) - 1.0);
-         if (x(0) >= 0.5 && x(1) >= 0.5) { return 0.4 * irg; }
-         if (x(0) <  0.5 && x(1) >= 0.5) { return 1.0 * irg; }
-         if (x(0) <  0.5 && x(1) <  0.5) { return 1.0 * irg; }
-         if (x(0) >= 0.5 && x(1) <  0.5) { return 1.0 * irg; }
-         MFEM_ABORT("Error in problem 5!");
-         return 0.0;
-      }
-      case 6:
-      {
-         const double irg = 1.0 / rho0(x) / (gamma_func(x) - 1.0);
-         if (x(0) >= 0.5 && x(1) >= 0.5) { return 1.0 * irg; }
-         if (x(0) <  0.5 && x(1) >= 0.5) { return 1.0 * irg; }
-         if (x(0) <  0.5 && x(1) <  0.5) { return 1.0 * irg; }
-         if (x(0) >= 0.5 && x(1) <  0.5) { return 1.0 * irg; }
-         MFEM_ABORT("Error in problem 6!");
-         return 0.0;
-      }
-      case 7:
-      {
-         const double rho = rho0(x), gamma = gamma_func(x);
-         return (6.0 - rho * x(1)) / (gamma - 1.0) / rho;
-      }
-      default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
-   }
-}
+// double e0(const Vector &x)
+// {
+//    switch (problem)
+//    {
+//       case 0:
+//       {
+//          const double denom = 2.0 / 3.0;  // (5/3 - 1) * density.
+//          double val;
+//          if (x.Size() == 2)
+//          {
+//             val = 1.0 + (cos(2*M_PI*x(0)) + cos(2*M_PI*x(1))) / 4.0;
+//          }
+//          else
+//          {
+//             val = 100.0 + ((cos(2*M_PI*x(2)) + 2) *
+//                            (cos(2*M_PI*x(0)) + cos(2*M_PI*x(1))) - 2) / 16.0;
+//          }
+//          return val/denom;
+//       }
+//       case 1: return 0.0; // This case in initialized in main().
+//       case 2: return (x(0) < 0.5) ? 1.0 / rho0(x) / (gamma_func(x) - 1.0)
+//                         : 0.1 / rho0(x) / (gamma_func(x) - 1.0);
+//       case 3: return (x(0) > 1.0) ? 0.1 / rho0(x) / (gamma_func(x) - 1.0)
+//                         : 1.0 / rho0(x) / (gamma_func(x) - 1.0);
+//       case 4:
+//       {
+//          const double r = rad(x(0), x(1)), rsq = x(0) * x(0) + x(1) * x(1);
+//          const double gamma = 5.0 / 3.0;
+//          if (r < 0.2)
+//          {
+//             return (5.0 + 25.0 / 2.0 * rsq) / (gamma - 1.0);
+//          }
+//          else if (r < 0.4)
+//          {
+//             const double t1 = 9.0 - 4.0 * log(0.2) + 25.0 / 2.0 * rsq;
+//             const double t2 = 20.0 * r - 4.0 * log(r);
+//             return (t1 - t2) / (gamma - 1.0);
+//          }
+//          else { return (3.0 + 4.0 * log(2.0)) / (gamma - 1.0); }
+//       }
+//       case 5:
+//       {
+//          const double irg = 1.0 / rho0(x) / (gamma_func(x) - 1.0);
+//          if (x(0) >= 0.5 && x(1) >= 0.5) { return 0.4 * irg; }
+//          if (x(0) <  0.5 && x(1) >= 0.5) { return 1.0 * irg; }
+//          if (x(0) <  0.5 && x(1) <  0.5) { return 1.0 * irg; }
+//          if (x(0) >= 0.5 && x(1) <  0.5) { return 1.0 * irg; }
+//          MFEM_ABORT("Error in problem 5!");
+//          return 0.0;
+//       }
+//       case 6:
+//       {
+//          const double irg = 1.0 / rho0(x) / (gamma_func(x) - 1.0);
+//          if (x(0) >= 0.5 && x(1) >= 0.5) { return 1.0 * irg; }
+//          if (x(0) <  0.5 && x(1) >= 0.5) { return 1.0 * irg; }
+//          if (x(0) <  0.5 && x(1) <  0.5) { return 1.0 * irg; }
+//          if (x(0) >= 0.5 && x(1) <  0.5) { return 1.0 * irg; }
+//          MFEM_ABORT("Error in problem 6!");
+//          return 0.0;
+//       }
+//       case 7:
+//       {
+//          const double rho = rho0(x), gamma = gamma_func(x);
+//          return (6.0 - rho * x(1)) / (gamma - 1.0) / rho;
+//       }
+//       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
+//    }
+// }
 
 static void display_banner(std::ostream &os)
 {
