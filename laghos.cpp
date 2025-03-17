@@ -659,6 +659,22 @@ int main(int argc, char *argv[])
       case 5: visc = true; break;
       case 6: visc = true; break;
       case 7: source = 2; visc = true; vorticity = true;  break;
+      case 8:
+      case 9: visc = true; break;
+      case 10: visc = true; break;
+      case 11:
+      case 12:
+      case 13:
+      case 14:
+      case 15:
+      case 16:
+      case 17:
+      case 18:
+      case 40:
+      case 41:
+      case 42:
+      case 43:
+      case 100: visc = true; break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
