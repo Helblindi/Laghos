@@ -508,8 +508,8 @@ int main(int argc, char *argv[])
       std::bind(&hydroLO::ProblemBase<dim_c>::v0, problem_class, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
    std::function<double(const Vector &,const double)> ste0_static =
       std::bind(&hydroLO::ProblemBase<dim_c>::ste0, problem_class, std::placeholders::_1, std::placeholders::_2);
-   // std::function<double(const Vector &,const double)> sie0_static =
-   //    std::bind(&hydroLO::ProblemBase<dim_c>::sie0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   std::function<double(const Vector &,const double)> sie0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::sie0, problem_class, std::placeholders::_1, std::placeholders::_2);
    std::function<double(const Vector &,const double)> rho0_static =
       std::bind(&hydroLO::ProblemBase<dim_c>::rho0, problem_class, std::placeholders::_1, std::placeholders::_2);
    std::function<double(const Vector &,const double)> p0_static =
@@ -632,7 +632,7 @@ int main(int argc, char *argv[])
    }
    else
    {
-      FunctionCoefficient e_coeff(ste0_static);
+      FunctionCoefficient e_coeff(sie0_static);
       l2_e.ProjectCoefficient(e_coeff);
    }
    e_gf.ProjectGridFunction(l2_e);
@@ -998,7 +998,7 @@ int main(int argc, char *argv[])
       FunctionCoefficient rho_coeff(rho0_static);
       rho_coeff.SetTime(t);
       v_coeff.SetTime(t);
-      FunctionCoefficient ste_coeff(ste0_static);
+      FunctionCoefficient ste_coeff(sie0_static);
       ste_coeff.SetTime(t);
       // FunctionCoefficient sv_coeff(sv0_static);
       // sv_coeff.SetTime(t);
