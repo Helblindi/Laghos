@@ -998,8 +998,8 @@ int main(int argc, char *argv[])
       FunctionCoefficient rho_coeff(rho0_static);
       rho_coeff.SetTime(t);
       v_coeff.SetTime(t);
-      FunctionCoefficient ste_coeff(sie0_static);
-      ste_coeff.SetTime(t);
+      FunctionCoefficient sie_coeff(sie0_static);
+      sie_coeff.SetTime(t);
       // FunctionCoefficient sv_coeff(sv0_static);
       // sv_coeff.SetTime(t);
 
@@ -1009,10 +1009,10 @@ int main(int argc, char *argv[])
       }
 
       // Compute errors
-      ParGridFunction rho_ex_gf(&L2FESpace), vel_ex_gf(&H1FESpace), ste_ex_gf(&L2FESpace), sv_ex_gf(&L2FESpace);
+      ParGridFunction rho_ex_gf(&L2FESpace), vel_ex_gf(&H1FESpace), sie_ex_gf(&L2FESpace), sv_ex_gf(&L2FESpace);
       rho_ex_gf.ProjectCoefficient(rho_coeff);
       vel_ex_gf.ProjectCoefficient(v_coeff);
-      ste_ex_gf.ProjectCoefficient(ste_coeff);
+      sie_ex_gf.ProjectCoefficient(sie_coeff);
       // sv_ex_gf.ProjectCoefficient(sv_coeff);
 
       // In the case of the Noh Problem, project 0 on the boundary of approx and exact
@@ -1031,7 +1031,7 @@ int main(int argc, char *argv[])
          //       rho_gf[i] = 0.;
          //       e_gf[i] = 0.;
          //       rho_ex_gf[i] = 0.;
-         //       ste_ex_gf[i] = 0.;
+         //       sie_ex_gf[i] = 0.;
          //       sv_ex_gf[i] = 0.;
          //       for (int j = 0; j < dim; j++)
          //       {
@@ -1046,11 +1046,11 @@ int main(int argc, char *argv[])
       /* Exact grid function shows inf */
       // e_gf.Print(cout);
       // cout << "---\n";
-      // ste_ex_gf.Print(cout);
-      // ste_ex_gf[0] = e_gf[0];
+      // sie_ex_gf.Print(cout);
+      // sie_ex_gf[0] = e_gf[0];
 
       /* Compute relative errors */
-      GridFunctionCoefficient rho_ex_coeff(&rho_ex_gf), vel_ex_coeff(&vel_ex_gf), ste_ex_coeff(&ste_ex_gf), sv_ex_coeff(&sv_ex_gf);
+      GridFunctionCoefficient rho_ex_coeff(&rho_ex_gf), vel_ex_coeff(&vel_ex_gf), ste_ex_coeff(&sie_ex_gf), sv_ex_coeff(&sv_ex_gf);
       
       // Velocity errors
       vel_L1_error_n = v_gf.ComputeL1Error(vel_ex_coeff) / vel_ex_gf.ComputeL1Error(zero);
@@ -1061,9 +1061,9 @@ int main(int argc, char *argv[])
       rho_L2_error_n = rho_gf.ComputeL2Error(rho_ex_coeff) / rho_ex_gf.ComputeL2Error(zero);
       rho_Max_error_n = rho_gf.ComputeMaxError(rho_ex_coeff) / rho_ex_gf.ComputeMaxError(zero);
 
-      ste_L1_error_n = e_gf.ComputeL1Error(ste_ex_coeff) / ste_ex_gf.ComputeL1Error(zero);
-      ste_L2_error_n = e_gf.ComputeL2Error(ste_ex_coeff) / ste_ex_gf.ComputeL2Error(zero);
-      ste_Max_error_n = e_gf.ComputeMaxError(ste_ex_coeff) / ste_ex_gf.ComputeMaxError(zero);
+      ste_L1_error_n = e_gf.ComputeL1Error(ste_ex_coeff) / sie_ex_gf.ComputeL1Error(zero);
+      ste_L2_error_n = e_gf.ComputeL2Error(ste_ex_coeff) / sie_ex_gf.ComputeL2Error(zero);
+      ste_Max_error_n = e_gf.ComputeMaxError(ste_ex_coeff) / sie_ex_gf.ComputeMaxError(zero);
 
       /* Get composite errors values, will return 0 if exact solution is not known */
       const double L1_error = (rho_L1_error_n + vel_L1_error_n + ste_L1_error_n) / 3.;
