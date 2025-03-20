@@ -1012,8 +1012,13 @@ int main(int argc, char *argv[])
       ParGridFunction rho_ex_gf(&L2FESpace), vel_ex_gf(&H1FESpace), sie_ex_gf(&L2FESpace), sv_ex_gf(&L2FESpace);
       rho_ex_gf.ProjectCoefficient(rho_coeff);
       vel_ex_gf.ProjectCoefficient(v_coeff);
-      sie_ex_gf.ProjectCoefficient(sie_coeff);
-      // sv_ex_gf.ProjectCoefficient(sv_coeff);
+
+      // Similar to how the gridfunction is initialized, we need to interpolate in a non-positive 
+      // basis to get the correct values at the dofs. Then we do an L2 projection to the positive
+      // basis in which we actually compute. The goal is to get a high-order representation of the
+      // exact solution.
+      l2_e.ProjectCoefficient(sie_coeff);
+      sie_ex_gf.ProjectGridFunction(l2_e);
 
       // In the case of the Noh Problem, project 0 on the boundary of approx and exact
       if (problem_class->get_indicator() == "Noh")
