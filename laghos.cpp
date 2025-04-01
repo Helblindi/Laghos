@@ -550,6 +550,12 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace L2FESpace(pmesh, &L2FEC);
    ParFiniteElementSpace H1FESpace(pmesh, &H1FEC, pmesh->Dimension());
 
+   /* IDP Limiter needs internal data of L2FESpace to be built to access adjacency information */
+   if (idp_limit)
+   {
+      L2FESpace.BuildDofToArrays();
+   }
+
    // Define the parallel finite element spaces for 
    // the low order approximation. We use:
    // - H1 (Q2, continuous) for mesh movement.
@@ -841,8 +847,7 @@ int main(int argc, char *argv[])
 
    /*** Build limiter ***/
    IDPLimiter *idpl;
-   // if (idp_limit)
-   // {
+
    /* Construct continuous projection spaces */
    H1_FECollection H1FEC_LO_t(1, dim);
    ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
@@ -859,16 +864,16 @@ int main(int argc, char *argv[])
    {
       idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv);
    }
-   // }
    
 
-   socketstream vis_rho, vis_v, vis_e;
+   socketstream vis_rho, vis_v, vis_e, vis_rho_limited;
    char vishost[] = "localhost";
    int  visport   = 19916;
 
    socketstream vis_rho_LO, vis_v_LO, vis_ste_LO, vis_mc_LO;
 
    ParGridFunction rho_gf(&L2FESpace);
+   ParGridFunction rho_gf_limited(&L2FESpace);
    if (visualization || pview || visit) { hydro.ComputeDensity(rho_gf); }
    const double energy_init = hydro.InternalEnergy(e_gf) +
                               hydro.KineticEnergy(v_gf);
@@ -881,6 +886,7 @@ int main(int argc, char *argv[])
       vis_rho.precision(8);
       vis_v.precision(8);
       vis_e.precision(8);
+      vis_rho_limited.precision(8);
       vis_rho_LO.precision(8);
       vis_v_LO.precision(8);
       vis_ste_LO.precision(8);
@@ -892,6 +898,9 @@ int main(int argc, char *argv[])
       {
          hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
                                        "Density", Wx, Wy, Ww, Wh);
+         Wx += offx;
+         hydrodynamics::VisualizeField(vis_rho_limited, vishost, visport, rho_gf_limited,
+                                       "Density limited", Wx, Wy, Ww, Wh);
       }
       Wx += offx;
       hydrodynamics::VisualizeField(vis_v, vishost, visport, v_gf,
@@ -1080,10 +1089,12 @@ int main(int argc, char *argv[])
          rho_gf_LO[i] = 1./sv_gf_LO[i];
       }
 
-      /* Limit */
+      /* Limit the higher order solution */
       if (idp_limit)
       {
-         idpl->LocalConservativeLimit(rho_gf_LO, rho_gf);
+         hydro.ComputeDensity(rho_gf);
+         rho_gf_limited = rho_gf;
+         idpl->LocalConservativeLimit(rho_gf_LO, rho_gf_limited);
       }
 
       if (last_step || (ti % vis_steps) == 0)
@@ -1141,6 +1152,9 @@ int main(int argc, char *argv[])
             {
                hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
                                              "Density", Wx, Wy, Ww, Wh);
+               Wx += offx;
+               hydrodynamics::VisualizeField(vis_rho_limited, vishost, visport, rho_gf_limited,
+                                             "Density limited", Wx, Wy, Ww, Wh);
             }
             Wx += offx;
             hydrodynamics::VisualizeField(vis_v, vishost, visport,
