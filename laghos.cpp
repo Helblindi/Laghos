@@ -422,6 +422,8 @@ int main(int argc, char *argv[])
    int NE = pmesh->GetNE(), ne_min, ne_max;
    MPI_Reduce(&NE, &ne_min, 1, MPI_INT, MPI_MIN, 0, pmesh->GetComm());
    MPI_Reduce(&NE, &ne_max, 1, MPI_INT, MPI_MAX, 0, pmesh->GetComm());
+   double hmin, hmax, kmin, kmax;
+   pmesh->GetCharacteristics(hmin, hmax, kmin, kmax);
    if (myid == 0)
    { cout << "Zones min/max: " << ne_min << " " << ne_max << endl; }
 
@@ -535,6 +537,8 @@ int main(int argc, char *argv[])
       std::bind(&hydroLO::ProblemBase<dim_c>::v0, problem_class, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
    std::function<double(const Vector &,const double)> ste0_static =
       std::bind(&hydroLO::ProblemBase<dim_c>::ste0, problem_class, std::placeholders::_1, std::placeholders::_2);
+   std::function<double(const Vector &,const double)> sie0_static =
+      std::bind(&hydroLO::ProblemBase<dim_c>::sie0, problem_class, std::placeholders::_1, std::placeholders::_2);
    std::function<double(const Vector &,const double)> rho0_static =
       std::bind(&hydroLO::ProblemBase<dim_c>::rho0, problem_class, std::placeholders::_1, std::placeholders::_2);
    std::function<double(const Vector &,const double)> p0_static =
@@ -755,10 +759,12 @@ int main(int argc, char *argv[])
    }
    else
    {
-      FunctionCoefficient e_coeff(ste0_static);
-      e_coeff.SetTime(t_init);
-      l2_e.ProjectCoefficient(e_coeff);
-      l2_e_LO.ProjectCoefficient(e_coeff);
+      FunctionCoefficient sie_coeff(sie0_static);
+      FunctionCoefficient ste_coeff(ste0_static);
+      sie_coeff.SetTime(t_init);
+      ste_coeff.SetTime(t_init);
+      l2_e.ProjectCoefficient(sie_coeff);
+      l2_e_LO.ProjectCoefficient(ste_coeff);
    }
    e_gf.ProjectGridFunction(l2_e);
    ste_gf_LO.ProjectGridFunction(l2_e_LO);
@@ -1097,7 +1103,7 @@ int main(int argc, char *argv[])
          rho_gf_limited = rho_gf;
          // idpl->LocalConservativeLimit(rho_gf_LO, rho_gf_limited);
          idpl->LimitGlobal(rho_gf_LO, rho_gf_limited);
-         // rho_gf = rho_gf_limited;
+         rho_gf = rho_gf_limited;
       }
 
       if (last_step || (ti % vis_steps) == 0)
@@ -1304,6 +1310,151 @@ int main(int argc, char *argv[])
               << "L_2    error: " << error_l2 << endl;
       }
    }
+
+   /*
+   For all test cases in which we have an exact solution,
+   compute the error for convergence testing
+   */
+   if (problem_class->has_exact_solution())
+   {
+      hydro.ComputeDensity(rho_gf);
+
+      ostringstream convergence_filename;
+      convergence_filename << basename << "/convergence/np" << num_tasks;
+
+      /* Coefficient to assist in computation of errors */
+      ConstantCoefficient zero(0.0);
+      
+      /* Values to store numerators, to be computed on case by case basis since exact solutions vary */
+      double rho_L1_error_n = 0., vel_L1_error_n = 0., ste_L1_error_n = 0.,
+             rho_L2_error_n = 0., vel_L2_error_n = 0., ste_L2_error_n = 0.,
+             rho_Max_error_n = 0., vel_Max_error_n = 0., ste_Max_error_n = 0.;
+
+      /* Set coefficients to final time */
+      FunctionCoefficient rho_coeff(rho0_static);
+      rho_coeff.SetTime(t);
+      v_coeff.SetTime(t);
+      FunctionCoefficient sie_coeff(sie0_static);
+      sie_coeff.SetTime(t);
+      // FunctionCoefficient sv_coeff(sv0_static);
+      // sv_coeff.SetTime(t);
+
+      if (problem_class->get_indicator() == "Vdw1")
+      {
+         problem_class->update(x_gf, t);
+      }
+
+      // Compute errors
+      ParGridFunction rho_ex_gf(&L2FESpace), vel_ex_gf(&H1FESpace), sie_ex_gf(&L2FESpace), sv_ex_gf(&L2FESpace);
+      rho_ex_gf.ProjectCoefficient(rho_coeff);
+      vel_ex_gf.ProjectCoefficient(v_coeff);
+
+      // Similar to how the gridfunction is initialized, we need to interpolate in a non-positive 
+      // basis to get the correct values at the dofs. Then we do an L2 projection to the positive
+      // basis in which we actually compute. The goal is to get a high-order representation of the
+      // exact solution.
+      l2_e.ProjectCoefficient(sie_coeff);
+      sie_ex_gf.ProjectGridFunction(l2_e);
+
+      // In the case of the Noh Problem, project 0 on the boundary of approx and exact
+      if (problem_class->get_indicator() == "Noh")
+      {
+         MFEM_ABORT("Issue with computing error for Noh problem.\n");
+         // cout << "[Noh] Projecting zero on the boundary cells.\n";
+         // ParGridFunction cell_bdr_flag_gf;
+         // hydro.GetCellBdrFlagGF(cell_bdr_flag_gf);
+
+         // for (int i = 0; i < pmesh->GetNE(); i++)
+         // {
+         //    if (cell_bdr_flag_gf[i] != -1)
+         //    {
+         //       // We have a boundary cell
+         //       rho_gf[i] = 0.;
+         //       e_gf[i] = 0.;
+         //       rho_ex_gf[i] = 0.;
+         //       sie_ex_gf[i] = 0.;
+         //       sv_ex_gf[i] = 0.;
+         //       for (int j = 0; j < dim; j++)
+         //       {
+         //          int index = i + j*pmesh->GetNE();
+         //          v_gf[index] = 0.;
+         //          vel_ex_gf[index] = 0.;
+         //       }
+         //    }
+         // }
+      }
+
+      /* Exact grid function shows inf */
+      // e_gf.Print(cout);
+      // cout << "---\n";
+      // sie_ex_gf.Print(cout);
+      // sie_ex_gf[0] = e_gf[0];
+
+      /* Compute relative errors */
+      GridFunctionCoefficient rho_ex_coeff(&rho_ex_gf), vel_ex_coeff(&vel_ex_gf), ste_ex_coeff(&sie_ex_gf), sv_ex_coeff(&sv_ex_gf);
+      
+      // Velocity errors
+      vel_L1_error_n = v_gf.ComputeL1Error(vel_ex_coeff) / vel_ex_gf.ComputeL1Error(zero);
+      vel_L2_error_n = v_gf.ComputeL2Error(vel_ex_coeff) / vel_ex_gf.ComputeL2Error(zero);
+      vel_Max_error_n = v_gf.ComputeMaxError(vel_ex_coeff) / vel_ex_gf.ComputeMaxError(zero);
+      
+      rho_L1_error_n = rho_gf.ComputeL1Error(rho_ex_coeff) / rho_ex_gf.ComputeL1Error(zero);
+      rho_L2_error_n = rho_gf.ComputeL2Error(rho_ex_coeff) / rho_ex_gf.ComputeL2Error(zero);
+      rho_Max_error_n = rho_gf.ComputeMaxError(rho_ex_coeff) / rho_ex_gf.ComputeMaxError(zero);
+
+      ste_L1_error_n = e_gf.ComputeL1Error(ste_ex_coeff) / sie_ex_gf.ComputeL1Error(zero);
+      ste_L2_error_n = e_gf.ComputeL2Error(ste_ex_coeff) / sie_ex_gf.ComputeL2Error(zero);
+      ste_Max_error_n = e_gf.ComputeMaxError(ste_ex_coeff) / sie_ex_gf.ComputeMaxError(zero);
+
+      /* Get composite errors values, will return 0 if exact solution is not known */
+      const double L1_error = (rho_L1_error_n + vel_L1_error_n + ste_L1_error_n) / 3.;
+      const double L2_error = (rho_L2_error_n + vel_L2_error_n + ste_L2_error_n) / 3.;
+      const double Max_error = (rho_Max_error_n + vel_Max_error_n + ste_Max_error_n) / 3.;
+
+      /* In either case, write convergence file. */
+      if (Mpi::Root())
+      {
+         if (rs_levels != 0) {
+            convergence_filename << "_s" << setfill('0') << setw(2) << rs_levels;
+         }
+         if (rp_levels != 0) {
+            convergence_filename << "_p" << setfill('0') << setw(2) << rp_levels;
+         }
+         convergence_filename << "_refinement_"
+                              << setfill('0') << setw(2)
+                              << to_string(rp_levels + rs_levels)
+                              << ".out";
+         ofstream convergence_file(convergence_filename.str().c_str());
+         convergence_file.precision(8);
+         convergence_file << "Processor_Runtime " << "1." << "\n"
+                           << "n_processes " << num_tasks << "\n"
+                           << "n_refinements "
+                           << to_string(rp_levels + rs_levels) << "\n"
+                           << "n_Dofs " << glob_size_l2 << "\n"
+                           << "h " << hmin << "\n"
+                           // rho
+                           << "rho_L1_Error " << rho_L1_error_n << "\n"
+                           << "rho_L2_Error " << rho_L2_error_n << "\n"
+                           << "rho_Linf_Error " << rho_Max_error_n << "\n"
+                           // vel
+                           << "vel_L1_Error " << vel_L1_error_n << "\n"
+                           << "vel_L2_Error " << vel_L2_error_n << "\n"
+                           << "vel_Linf_Error " << vel_Max_error_n << "\n"
+                           // ste
+                           << "ste_L1_Error " << ste_L1_error_n << "\n"
+                           << "ste_L2_Error " << ste_L2_error_n << "\n"
+                           << "ste_Linf_Error " << ste_Max_error_n << "\n"
+                           // total
+                           << "L1_Error " << L1_error << "\n"
+                           << "L2_Error " << L2_error << "\n"
+                           << "Linf_Error " << Max_error << "\n"
+                           << "mass_loss " << 0. << "\n"
+                           << "dt " << dt << "\n"
+                           << "Endtime " << t << "\n";
+                     
+         convergence_file.close();
+      }
+   } // End error computation
 
    if (visualization)
    {
