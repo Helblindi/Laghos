@@ -874,6 +874,7 @@ int main(int argc, char *argv[])
 
    ParGridFunction rho_gf(&L2FESpace);
    ParGridFunction rho_gf_limited(&L2FESpace);
+   // This call is ok since it is just to initialize the grid function
    if (visualization || pview || visit) { hydro.ComputeDensity(rho_gf); }
    const double energy_init = hydro.InternalEnergy(e_gf) +
                               hydro.KineticEnergy(v_gf);
@@ -894,14 +895,14 @@ int main(int argc, char *argv[])
       int Wx = 0, Wy = 0; // window position
       const int Ww = 350, Wh = 350; // window size
       int offx = Ww+10, offy = Wh + 45; // window offsets
-      if (problem != 0 && problem != 4)
-      {
-         hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
-                                       "Density", Wx, Wy, Ww, Wh);
-         Wx += offx;
-         hydrodynamics::VisualizeField(vis_rho_limited, vishost, visport, rho_gf_limited,
-                                       "Density limited", Wx, Wy, Ww, Wh);
-      }
+      // if (problem != 0 && problem != 4)
+      // {
+      hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
+                                    "Density", Wx, Wy, Ww, Wh);
+      Wx += offx;
+      hydrodynamics::VisualizeField(vis_rho_limited, vishost, visport, rho_gf_limited,
+                                    "Density limited", Wx, Wy, Ww, Wh);
+      // }
       Wx += offx;
       hydrodynamics::VisualizeField(vis_v, vishost, visport, v_gf,
                                     "Velocity", Wx, Wy, Ww, Wh);
@@ -910,20 +911,20 @@ int main(int argc, char *argv[])
                                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
       
       Wx = 0; Wy += offy;
-      if (problem != 0 && problem != 4)
-      {
-         hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
-                                       "Density", Wx, Wy, Ww, Wh);
-      }
+      // if (problem != 0 && problem != 4)
+      // {
+      hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
+                                    "LO Density", Wx, Wy, Ww, Wh);
+      // }
       Wx += offx;
       hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
-                                    "Velocity", Wx, Wy, Ww, Wh);
+                                    "LO Velocity", Wx, Wy, Ww, Wh);
       Wx += offx;
       hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
-                                    "Specific Internal Energy", Wx, Wy, Ww, Wh);
+                                    "LO Specific Internal Energy", Wx, Wy, Ww, Wh);
                                     Wx += offx;
       hydrodynamics::VisualizeField(vis_mc_LO, vishost, visport, mc_gf_LO,
-                                    "Mass loss", Wx, Wy, Ww, Wh);
+                                    "LO Mass loss", Wx, Wy, Ww, Wh);
    }
 
    // Save data for VisIt visualization.
@@ -1092,9 +1093,11 @@ int main(int argc, char *argv[])
       /* Limit the higher order solution */
       if (idp_limit)
       {
-         hydro.ComputeDensity(rho_gf);
+         hydro.ComputeDensity(rho_gf); // the only time this function should be called
          rho_gf_limited = rho_gf;
-         idpl->LocalConservativeLimit(rho_gf_LO, rho_gf_limited);
+         // idpl->LocalConservativeLimit(rho_gf_LO, rho_gf_limited);
+         idpl->LimitGlobal(rho_gf_LO, rho_gf_limited);
+         // rho_gf = rho_gf_limited;
       }
 
       if (last_step || (ti % vis_steps) == 0)
@@ -1142,20 +1145,20 @@ int main(int argc, char *argv[])
          // another set of GLVis connections (one from each rank):
          MPI_Barrier(pmesh->GetComm());
 
-         if (visualization || pview || visit || gfprint) { hydro.ComputeDensity(rho_gf); }
+         if ((visualization || pview || visit || gfprint) && !idp_limit) { hydro.ComputeDensity(rho_gf); }
          if (visualization)
          {
             int Wx = 0, Wy = 0; // window position
             int Ww = 350, Wh = 350; // window size
             int offx = Ww+10, offy = Wh + 45; // window offsets
-            if (problem != 0 && problem != 4)
-            {
-               hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
-                                             "Density", Wx, Wy, Ww, Wh);
-               Wx += offx;
-               hydrodynamics::VisualizeField(vis_rho_limited, vishost, visport, rho_gf_limited,
-                                             "Density limited", Wx, Wy, Ww, Wh);
-            }
+            // if (problem != 0 && problem != 4)
+            // {
+            hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
+                                          "Density", Wx, Wy, Ww, Wh);
+            Wx += offx;
+            hydrodynamics::VisualizeField(vis_rho_limited, vishost, visport, rho_gf_limited,
+                                          "Density limited", Wx, Wy, Ww, Wh);
+            // }
             Wx += offx;
             hydrodynamics::VisualizeField(vis_v, vishost, visport,
                                           v_gf, "Velocity", Wx, Wy, Ww, Wh);
@@ -1166,20 +1169,20 @@ int main(int argc, char *argv[])
             
             /* LO visualization */
             Wx = 0; Wy += offy;
-            if (problem != 0 && problem != 4)
-            {
-               hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
-                                             "Density", Wx, Wy, Ww, Wh);
-            }
+            // if (problem != 0 && problem != 4)
+            // {
+            hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
+                                          "LO Density", Wx, Wy, Ww, Wh);
+            // }
             Wx += offx;
             hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
-                                          "Velocity", Wx, Wy, Ww, Wh);
+                                          "LO Velocity", Wx, Wy, Ww, Wh);
             Wx += offx;
             hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
-                                          "Specific Internal Energy", Wx, Wy, Ww, Wh);
+                                          "LO Specific Internal Energy", Wx, Wy, Ww, Wh);
             Wx += offx;
             hydrodynamics::VisualizeField(vis_mc_LO, vishost, visport, mc_gf_LO,
-                                          "Mass loss", Wx, Wy, Ww, Wh);
+                                          "LO Mass loss", Wx, Wy, Ww, Wh);
          }
 
          if (visit)
