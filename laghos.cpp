@@ -105,7 +105,7 @@ int main(int argc, char *argv[])
    int order_e = 1;
    int order_q = -1;
    int order_e_lo = 0; // low-order approximation space
-   int order_v_lo = 1;
+   int order_v_lo = 2;
    bool idp_limit = true;
    int ode_solver_type = 4;
    double t_init = 0.0;
