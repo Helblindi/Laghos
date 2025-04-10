@@ -120,11 +120,17 @@ protected:
    const int cg_max_iter;
    const double ftz_tol;
    const ParGridFunction &gamma_gf;
+   // IDP
+   MassIntegrator * mi;
+   VectorMassIntegrator * vmi;
+   const ParGridFunction &rho_gf_lim;
+   GridFunctionCoefficient rho_lim_coeff;
+   bool use_limiting;
    // Velocity mass matrix and local inverses of the energy mass matrices. These
    // are constant in time, due to the pointwise mass conservation property.
    mutable ParBilinearForm Mv;
-   SparseMatrix Mv_spmat_copy;
-   DenseTensor Me, Me_inv;
+   mutable SparseMatrix Mv_spmat_copy;
+   mutable DenseTensor Me, Me_inv;
    // Integration rule for all assemblies.
    const IntegrationRule &ir;
    // Data associated with each quadrature point in the mesh.
@@ -171,7 +177,9 @@ public:
                            const Array<int> &ess_tdofs,
                            Coefficient &rho0_coeff,
                            ParGridFunction &rho0_gf,
-                           ParGridFunction &gamma_gf,
+                           const bool _use_limiting,
+                           const ParGridFunction &rho_gf_limited,
+                           const ParGridFunction &gamma_gf,
                            const int source,
                            const double cfl,
                            const bool visc, const bool vort, const bool pa,
@@ -188,7 +196,10 @@ public:
    void SolveVelocity(const Vector &S, Vector &dS_dt) const;
    void SolveEnergy(const Vector &S, const Vector &v, Vector &dS_dt) const;
    void UpdateMesh(const Vector &S) const;
+
+   /* IDP */
    void GetMeshVelocity(ParGridFunction &_dx_gf) const { _dx_gf = this->dx_gf; }
+   void UpdateMassMatrices() const;
 
    // Calls UpdateQuadratureData to compute the new qdata.dt_estimate.
    double GetTimeStepEstimate(const Vector &S) const;

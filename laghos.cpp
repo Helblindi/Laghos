@@ -703,6 +703,7 @@ int main(int argc, char *argv[])
    /* Define the low order grid functions*/
    ParGridFunction x_gf_LO, sv_gf_LO, v_gf_LO, ste_gf_LO;
    ParGridFunction rho_gf_LO(&LO_L2FESpace), mc_gf_LO(&LO_L2FESpace);
+   ParGridFunction rho_gf(&L2FESpace), rho_gf_limited(&L2FESpace);
    mc_gf_LO = 0.; // if a cells value is 0, mass is conserved
    x_gf_LO.MakeRef(&LO_H1FESpace, S_LO, offset_LO[0]);
    sv_gf_LO.MakeRef(&LO_L2FESpace, S_LO, offset_LO[1]);
@@ -749,6 +750,9 @@ int main(int argc, char *argv[])
    l2_rho0_gf.ProjectCoefficient(rho0_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
    rho_gf_LO.ProjectCoefficient(rho0_coeff);
+   rho_gf.ProjectGridFunction(l2_rho0_gf);
+   rho_gf_limited.ProjectGridFunction(l2_rho0_gf);
+
    if (problem == 1)
    {
       // For the Sedov test, we use a delta function at the origin.
@@ -823,6 +827,7 @@ int main(int argc, char *argv[])
    hydrodynamics::LagrangianHydroOperator hydro(S.Size(),
                                                 H1FESpace, L2FESpace, ess_tdofs,
                                                 rho0_coeff, rho0_gf,
+                                                idp_limit, rho_gf_limited,
                                                 mat_gf, source, cfl,
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
@@ -878,8 +883,6 @@ int main(int argc, char *argv[])
 
    socketstream vis_rho_LO, vis_v_LO, vis_ste_LO, vis_mc_LO;
 
-   ParGridFunction rho_gf(&L2FESpace);
-   ParGridFunction rho_gf_limited(&L2FESpace);
    // This call is ok since it is just to initialize the grid function
    if (visualization || pview || visit) { hydro.ComputeDensity(rho_gf); }
    const double energy_init = hydro.InternalEnergy(e_gf) +
@@ -927,7 +930,7 @@ int main(int argc, char *argv[])
                                     "LO Velocity", Wx, Wy, Ww, Wh);
       Wx += offx;
       hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
-                                    "LO Specific Internal Energy", Wx, Wy, Ww, Wh);
+                                    "LO Specific Total Energy", Wx, Wy, Ww, Wh);
                                     Wx += offx;
       hydrodynamics::VisualizeField(vis_mc_LO, vishost, visport, mc_gf_LO,
                                     "LO Mass loss", Wx, Wy, Ww, Wh);
@@ -1185,7 +1188,7 @@ int main(int argc, char *argv[])
                                           "LO Velocity", Wx, Wy, Ww, Wh);
             Wx += offx;
             hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
-                                          "LO Specific Internal Energy", Wx, Wy, Ww, Wh);
+                                          "LO Specific Total Energy", Wx, Wy, Ww, Wh);
             Wx += offx;
             hydrodynamics::VisualizeField(vis_mc_LO, vishost, visport, mc_gf_LO,
                                           "LO Mass loss", Wx, Wy, Ww, Wh);

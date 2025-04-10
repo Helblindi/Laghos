@@ -94,7 +94,9 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
                                                  const Array<int> &ess_tdofs,
                                                  Coefficient &rho0_coeff,
                                                  ParGridFunction &rho0_gf,
-                                                 ParGridFunction &gamma_gf,
+                                                 const bool _use_limiting,
+                                                 const ParGridFunction &rho_gf_limited,
+                                                 const ParGridFunction &gamma_gf,
                                                  const int source,
                                                  const double cfl,
                                                  const bool visc,
@@ -126,6 +128,9 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    use_vorticity(vort),
    p_assembly(p_assembly),
    cg_rel_tol(cgt), cg_max_iter(cgiter),ftz_tol(ftz),
+   use_limiting(_use_limiting),
+   rho_gf_lim(rho_gf_limited),
+   rho_lim_coeff(&rho_gf_limited),
    gamma_gf(gamma_gf),
    Mv(&H1), Mv_spmat_copy(),
    Me(l2dofs_cnt, l2dofs_cnt, NE),
@@ -188,21 +193,34 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    }
    else
    {
-      // Standard local assembly and inversion for energy mass matrices.
-      // 'Me' is used in the computation of the internal energy
-      // which is used twice: once at the start and once at the end of the run.
-      MassIntegrator mi(rho0_coeff, &ir);
+      /* 
+      If limiting is to be used, mass matrices will need to be updated at every timestep,
+      and must depend on the rho_lim_coeff 
+      */
+      if (use_limiting)
+      {
+         mi = new MassIntegrator(rho_lim_coeff, &ir);
+         vmi = new VectorMassIntegrator(rho_lim_coeff, &ir);
+      }
+      else
+      {
+         // Standard local assembly and inversion for energy mass matrices.
+         // 'Me' is used in the computation of the internal energy
+         // which is used twice: once at the start and once at the end of the run.
+         mi = new MassIntegrator(rho0_coeff, &ir);
+         vmi = new VectorMassIntegrator(rho0_coeff, &ir);
+      }
+
       for (int e = 0; e < NE; e++)
       {
          DenseMatrixInverse inv(&Me(e));
          const FiniteElement &fe = *L2.GetFE(e);
          ElementTransformation &Tr = *L2.GetElementTransformation(e);
-         mi.AssembleElementMatrix(fe, Tr, Me(e));
+         mi->AssembleElementMatrix(fe, Tr, Me(e));
          inv.Factor();
          inv.GetInverseMatrix(Me_inv(e));
       }
       // Standard assembly for the velocity mass matrix.
-      VectorMassIntegrator *vmi = new VectorMassIntegrator(rho0_coeff, &ir);
       Mv.AddDomainIntegrator(vmi);
       Mv.Assemble();
       Mv_spmat_copy = Mv.SpMat();
@@ -291,6 +309,8 @@ LagrangianHydroOperator::~LagrangianHydroOperator()
       delete VMassPA_Jprec;
       delete ForcePA;
    }
+   // delete vmi;
+   // delete mi;
 }
 
 void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
@@ -299,6 +319,7 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    // needed only because some mfem time integrators don't update the solution
    // vector at every intermediate stage (hence they don't change the mesh).
    UpdateMesh(S);
+   if (use_limiting) { UpdateMassMatrices(); }
    // The monolithic BlockVector stores the unknown fields as follows:
    // (Position, Velocity, Specific Internal Energy).
    Vector* sptr = const_cast<Vector*>(&S);
@@ -482,6 +503,35 @@ void LagrangianHydroOperator::UpdateMesh(const Vector &S) const
    H1.GetParMesh()->NewNodes(x_gf, false);
 }
 
+void LagrangianHydroOperator::UpdateMassMatrices() const
+{
+   std::cout << "LagrangianHydroOperator::UpdateMassMatrices()" << std::endl;
+   if (p_assembly)
+   {
+      MFEM_ABORT("Not implemented.");
+   }
+   if (!use_limiting)
+   {
+      MFEM_ABORT("Function should only be called when limiting is enabled.");
+   }
+
+   /* Reassemble energy mass matrices */
+   for (int e = 0; e < NE; e++)
+   {
+      DenseMatrixInverse inv(&Me(e));
+      const FiniteElement &fe = *L2.GetFE(e);
+      ElementTransformation &Tr = *L2.GetElementTransformation(e);
+      mi->AssembleElementMatrix(fe, Tr, Me(e));
+      inv.Factor();
+      inv.GetInverseMatrix(Me_inv(e));
+   }
+
+   // Standard reassembly for the velocity mass matrix.
+   Mv.Update();
+   Mv.Assemble();
+   Mv_spmat_copy = Mv.SpMat();
+}
+
 double LagrangianHydroOperator::GetTimeStepEstimate(const Vector &S) const
 {
    UpdateMesh(S);
@@ -504,7 +554,7 @@ void LagrangianHydroOperator::ComputeDensity(ParGridFunction &rho) const
    Vector rhs(l2dofs_cnt), rho_z(l2dofs_cnt);
    Array<int> dofs(l2dofs_cnt);
    DenseMatrixInverse inv(&Mrho);
-   MassIntegrator mi(&ir);
+   MassIntegrator _mi(&ir);
    DensityIntegrator di(qdata);
    di.SetIntRule(&ir);
    for (int e = 0; e < NE; e++)
@@ -512,7 +562,7 @@ void LagrangianHydroOperator::ComputeDensity(ParGridFunction &rho) const
       const FiniteElement &fe = *L2.GetFE(e);
       ElementTransformation &eltr = *L2.GetElementTransformation(e);
       di.AssembleRHSElementVect(fe, eltr, rhs);
-      mi.AssembleElementMatrix(fe, eltr, Mrho);
+      _mi.AssembleElementMatrix(fe, eltr, Mrho);
       inv.Factor();
       inv.Mult(rhs, rho_z);
       L2.GetElementDofs(e, dofs);
@@ -762,7 +812,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    x.MakeRef(&H1, *sptr, 0);
    v.MakeRef(&H1, *sptr, H1.GetVSize());
    e.MakeRef(&L2, *sptr, 2*H1.GetVSize());
-   Vector e_vals;
+   Vector e_vals, rho_vals;
    DenseMatrix Jpi(dim), sgrad_v(dim), Jinv(dim), stress(dim), stressJiT(dim);
 
    // Batched computations are needed, because hydrodynamic codes usually
@@ -797,6 +847,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
          ElementTransformation *T = H1.GetElementTransformation(z_id);
          Jpr_b[z].SetSize(dim, dim, nqp);
          e.GetValues(z_id, ir, e_vals);
+         rho_gf_lim.GetValues(z_id, ir, rho_vals);
          for (int q = 0; q < nqp; q++)
          {
             const IntegrationPoint &ip = ir.IntPoint(q);
@@ -807,7 +858,8 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
             const int idx = z * nqp + q;
             // Assuming piecewise constant gamma that moves with the mesh.
             gamma_b[idx] = gamma_gf(z_id);
-            rho_b[idx] = qdata.rho0DetJ0w(z_id*nqp + q) / detJ / ip.weight;
+            // rho_b[idx] = qdata.rho0DetJ0w(z_id*nqp + q) / detJ / ip.weight;
+            rho_b[idx] = rho_vals(q);
             e_b[idx] = fmax(0.0, e_vals(q));
          }
          ++z_id;
