@@ -132,7 +132,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    /* Limit HO Density */
    f_HO->ComputeDensity(*rho_gf_limited);
    f_LO->ComputeDensity(yl, *rho_gf_LO);
-   limiter->LimitGlobal(*rho_gf_LO, *rho_gf_limited);
+   limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
    /**********  HO stage 2 **********/
    f_HO->SetTime(t + dt/2);
@@ -154,7 +154,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    f_HO->ComputeDensity(*rho_gf_limited);
    f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
    f_LO->ComputeDensity(yl, *rho_gf_LO);
-   limiter->LimitGlobal(*rho_gf_LO, *rho_gf_limited);
+   limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
    /**********  HO stage 3 **********/
    f_HO->Mult(y, k); // k3
@@ -174,7 +174,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    f_HO->ComputeDensity(*rho_gf_limited);
    f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
    f_LO->ComputeDensity(yl, *rho_gf_LO);
-   limiter->LimitGlobal(*rho_gf_LO, *rho_gf_limited);
+   limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
    /**********  HO stage 4 **********/
    f_HO->SetTime(t + dt);
@@ -195,7 +195,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    f_HO->ComputeDensity(*rho_gf_limited);
    f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
-   limiter->LimitGlobal(*rho_gf_LO, *rho_gf_limited);
+   limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
    t += dt;
 }
@@ -270,7 +270,7 @@ void RK2SolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    /* Limiting */
    f_HO->ComputeDensity(*rho_gf_limited);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
-   limiter->LimitGlobal(*rho_gf_LO, *rho_gf_limited);
+   limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
    /* HO stage 2 */
    f_HO->SetTime(t + a*dt);
@@ -292,7 +292,7 @@ void RK2SolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    /* Limiting */
    f_HO->ComputeDensity(*rho_gf_limited);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
-   limiter->LimitGlobal(*rho_gf_LO, *rho_gf_limited);
+   limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
    t += dt;
 }
@@ -353,7 +353,7 @@ void ForwardEulerSolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    /* Limiting */
    f_HO->ComputeDensity(*rho_gf_limited);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
-   limiter->LimitGlobal(*rho_gf_LO, *rho_gf_limited);
+   limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
    t += dt;
 }

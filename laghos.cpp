@@ -833,6 +833,17 @@ int main(int argc, char *argv[])
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
+   
+   /* Construct mass vectors */
+   ParLinearForm *mHO = new ParLinearForm(&L2FESpace);
+   mHO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
+   mHO->Assemble();
+   HypreParVector *mHO_hpv = mHO->ParallelAssemble();
+
+   /* Assemble initial masses for low order approximation */
+   ParLinearForm *m = new ParLinearForm(&LO_L2FESpace);
+   m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
+   m->Assemble();
 
    hydrodynamics::LagrangianHydroOperator hydro(S.Size(),
                                                 H1FESpace, L2FESpace, ess_tdofs,
@@ -843,11 +854,6 @@ int main(int argc, char *argv[])
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q);
    
-
-   /* Assemble initial masses for low order approximation */
-   ParLinearForm *m = new ParLinearForm(&LO_L2FESpace);
-   m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
-   m->Assemble();
    /* Various other parameters */
    bool use_viscosity = true;
    bool mm = true;
@@ -873,14 +879,7 @@ int main(int argc, char *argv[])
    H1_FECollection H1FEC_LO_t(1, dim);
    ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
    H1_FECollection H1FEC_HO_t(order_e, dim);
-   ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t);
-
-   /* Construct mass vector */
-   ParLinearForm *mHO = new ParLinearForm(&L2FESpace);
-   mHO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
-   mHO->Assemble();
-   HypreParVector *mHO_hpv = mHO->ParallelAssemble();
-   
+   ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t);   
 
    socketstream vis_rho, vis_v, vis_e, vis_rho_limited;
    char vishost[] = "localhost";
