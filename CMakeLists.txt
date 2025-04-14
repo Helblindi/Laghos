@@ -108,11 +108,13 @@ set(LAGHOS_DIR "${PROJECT_SOURCE_DIR}/")
 list(APPEND HEADERS
    "${PROJECT_SOURCE_DIR}/laghos_assembly.hpp"
    "${PROJECT_SOURCE_DIR}/laghos_solver.hpp"
+   "${PROJECT_SOURCE_DIR}/ode_idp.hpp"
    "${PROJECT_SOURCE_DIR}/../mfem/build/mfem.hpp")
 
 list(APPEND SOURCES 
    laghos_assembly.cpp
    laghos_solver.cpp
+   ode_idp.cpp
    laghos.cpp)
 
 

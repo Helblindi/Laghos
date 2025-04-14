@@ -66,6 +66,7 @@
 #include "laglos_solver.hpp"
 #include "test_problems_include.h"
 #include "limiter.h"
+#include "ode_idp.hpp"
 
 using std::cout;
 using std::endl;
@@ -79,6 +80,7 @@ double e0(const Vector &);
 double rho0(const Vector &);
 double gamma_func(const Vector &);
 void v0(const Vector &, Vector &);
+void MassesAndVolumesAtPosition(const ParGridFunction &u, const GridFunction &x, Vector &el_mass, Vector &el_vol);
 
 static long GetMaxRssMB();
 static void display_banner(std::ostream&);
@@ -106,7 +108,7 @@ int main(int argc, char *argv[])
    int order_q = -1;
    int order_e_lo = 0; // low-order approximation space
    int order_v_lo = 2;
-   bool idp_limit = true;
+   bool idp_limit = false;
    int ode_solver_type = 4;
    double t_init = 0.0;
    double t_final = 0.6;
@@ -155,8 +157,8 @@ int main(int argc, char *argv[])
                   "Use limiter and low order Laglos solver to ensure invariant domain is preserved.");
    args.AddOption(&ode_solver_type, "-s", "--ode-solver",
                   "ODE solver: 1 - Forward Euler,\n\t"
-                  "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6,\n\t"
-                  "            7 - RK2Avg.");
+                  "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6, 7 - RK2Avg\n\t"
+                  "            12 - RK2 IDP, 14 - RK4 IDP.");
    args.AddOption(&t_init, "-ti", "--t-init", "Initial time.");
    args.AddOption(&t_final, "-tf", "--t-final",
                   "Final time; start time is 0.");
@@ -616,7 +618,6 @@ int main(int argc, char *argv[])
 
    // Define the explicit ODE solver used for time integration.
    ODESolver *ode_solver = NULL;
-   ODESolver *ode_solver_LO = new ForwardEulerSolver;
    switch (ode_solver_type)
    {
       case 1:
@@ -636,6 +637,15 @@ int main(int argc, char *argv[])
          break;
       case 7:
          ode_solver = new RK2AvgSolver;
+         break;
+      case 11:
+         ode_solver = new hydrodynamics::ForwardEulerSolverIDP();
+         break;
+      case 12:
+         ode_solver = new hydrodynamics::RK2SolverIDP(0.5);
+         break;
+      case 14:
+         ode_solver = new hydrodynamics::RK4SolverIDP;
          break;
       default:
          if (myid == 0)
@@ -853,7 +863,7 @@ int main(int argc, char *argv[])
    hydro_LO.SetMVLinOption(false);
    hydro_LO.SetFVOption(2);
    hydro_LO.SetProblem(problem);
-   // hydro_LO.SetDensityPP(true);
+   hydro_LO.SetDensityPP(true);
    hydro_LO.SetComputeMV(false);
 
    /*** Build limiter ***/
@@ -870,11 +880,6 @@ int main(int argc, char *argv[])
    mHO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
    mHO->Assemble();
    HypreParVector *mHO_hpv = mHO->ParallelAssemble();
-   
-   if (idp_limit)
-   {
-      idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv);
-   }
    
 
    socketstream vis_rho, vis_v, vis_e, vis_rho_limited;
@@ -904,14 +909,15 @@ int main(int argc, char *argv[])
       int Wx = 0, Wy = 0; // window position
       const int Ww = 350, Wh = 350; // window size
       int offx = Ww+10, offy = Wh + 45; // window offsets
-      // if (problem != 0 && problem != 4)
-      // {
+
       hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
                                     "Density", Wx, Wy, Ww, Wh);
       Wx += offx;
-      hydrodynamics::VisualizeField(vis_rho_limited, vishost, visport, rho_gf_limited,
-                                    "Density limited", Wx, Wy, Ww, Wh);
-      // }
+      if (idp_limit)
+      {
+         hydrodynamics::VisualizeField(vis_rho_limited, vishost, visport, rho_gf_limited,
+                                       "Density limited", Wx, Wy, Ww, Wh);
+      }
       Wx += offx;
       hydrodynamics::VisualizeField(vis_v, vishost, visport, v_gf,
                                     "Velocity", Wx, Wy, Ww, Wh);
@@ -919,21 +925,22 @@ int main(int argc, char *argv[])
       hydrodynamics::VisualizeField(vis_e, vishost, visport, e_gf,
                                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
       
-      Wx = 0; Wy += offy;
-      // if (problem != 0 && problem != 4)
-      // {
-      hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
-                                    "LO Density", Wx, Wy, Ww, Wh);
-      // }
-      Wx += offx;
-      hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
-                                    "LO Velocity", Wx, Wy, Ww, Wh);
-      Wx += offx;
-      hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
-                                    "LO Specific Total Energy", Wx, Wy, Ww, Wh);
-                                    Wx += offx;
-      hydrodynamics::VisualizeField(vis_mc_LO, vishost, visport, mc_gf_LO,
-                                    "LO Mass loss", Wx, Wy, Ww, Wh);
+      if (idp_limit)
+      {
+         Wx = 0; Wy += offy;
+         hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
+                                       "LO Density", Wx, Wy, Ww, Wh);
+         Wx += offx;
+         hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
+                                       "LO Velocity", Wx, Wy, Ww, Wh);
+         Wx += offx;
+         hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
+                                       "LO Specific Total Energy", Wx, Wy, Ww, Wh);
+                                       Wx += offx;
+         hydrodynamics::VisualizeField(vis_mc_LO, vishost, visport, mc_gf_LO,
+                                       "LO Mass loss", Wx, Wy, Ww, Wh);
+      }
+      
    }
 
    // Save data for VisIt visualization.
@@ -942,6 +949,7 @@ int main(int argc, char *argv[])
    if (visit)
    {
       visit_dc.RegisterField("Density",  &rho_gf);
+      visit_dc.RegisterField("Density limited", &rho_gf_limited);
       visit_dc.RegisterField("Velocity", &v_gf);
       visit_dc.RegisterField("Specific Internal Energy", &e_gf);
       visit_dc.SetCycle(0);
@@ -962,6 +970,7 @@ int main(int argc, char *argv[])
    {
       paraview_dc.SetDataFormat(VTKFormat::ASCII);
       paraview_dc.RegisterField("Density",  &rho_gf);
+      paraview_dc.RegisterField("Density limited", &rho_gf_limited);
       paraview_dc.RegisterField("Velocity", &v_gf);
       paraview_dc.RegisterField("Specific Internal Energy", &e_gf);
       paraview_dc.SetCycle(0);
@@ -981,13 +990,23 @@ int main(int argc, char *argv[])
    // time-step dt). The object oper is of type LagrangianHydroOperator that
    // defines the Mult() method that used by the time integrators.
    ode_solver->Init(hydro);
+   if (idp_limit)
+   {
+      idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv);
+      // Set the IDP limiter and LO solver for the RK4 solver
+      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetIDPOperator(hydro_LO);
+      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetLOStateVector(S_LO);
+      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetGridTransferOperator(P);
+      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetIDPLimiter(*idpl);
+      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetRhoGFLimited(rho_gf_limited);
+      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetRhoGFLO(rho_gf_LO);
+   }
    hydro.ResetTimeStepEstimate();
-   ode_solver_LO->Init(hydro_LO);
+
    double t = t_init, t_LO = t_init, dt = hydro.GetTimeStepEstimate(S), t_old;
    bool last_step = false;
    int steps = 0;
-   BlockVector S_old_LO(S_LO);
-   BlockVector S_old(S);
+   BlockVector S_old(S), S_old_LO(S_LO);
    long mem=0, mmax=0, msum=0;
    int checks = 0;
    //   const double internal_energy = hydro.InternalEnergy(e_gf);
@@ -1020,35 +1039,39 @@ int main(int argc, char *argv[])
       }
       if (steps == max_tsteps) { last_step = true; }
       S_old = S;
-      S_old_LO = S_LO;
       t_old = t;
+      S_old_LO = S_LO;
       hydro.ResetTimeStepEstimate();
 
       /* Validate timestep and setup hydro for next step */
-      hydro_LO.BuildDijMatrix(S_LO);
-      // Check cfl restriction
-      hydro_LO.CalculateTimestep(S_LO);
-      if (dt > hydro_LO.GetTimestep())
+      if (idp_limit)
       {
+         hydro_LO.BuildDijMatrix(S_LO);
+         // Check cfl restriction
+         hydro_LO.CalculateTimestep(S_LO);
          double dt_LO = hydro_LO.GetTimestep();
-         cout << "dt: " << dt << ", lo dt: " << dt_LO << endl;
-         dt = dt_LO;
-         // MFEM_ABORT("Time step too large.\n");
+         if (dt > dt_LO)
+         {
+            cout << "dt: " << dt << ", lo dt: " << dt_LO << endl;
+            dt = dt_LO;
+            // MFEM_ABORT("Time step too large.\n");
+         }
       }
-      hydro_LO.UpdateMeshVelocityBCs(t_LO, dt);
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
       ode_solver->Step(S, t, dt);
-      /* Step LO forward*/
-      
-      /* Project HO mv onto LO space */
-      hydro.GetMeshVelocity(dx);
-      P.Mult(dx, dx_LO);
-      hydro_LO.SetMV(dx_LO);
 
-      ode_solver_LO->Step(S_LO, t_LO, dt);
-      hydro_LO.EnforceL2BC(S_LO, t_LO, dt);
+      /* Compute cell masses */
+      // Vector el_mass(NE), el_vol(NE);
+      // hydro.ComputeDensity(rho_gf);
+      // if(idp_limit)
+      // {
+      //    rho_gf = rho_gf_limited;
+      // }
+      // MassesAndVolumesAtPosition(rho_gf, x_gf, el_mass, el_vol);
+      // cout << "masses: ";
+      // el_mass.Print(cout);
 
       // Increment steps
       steps++;
@@ -1064,8 +1087,10 @@ int main(int argc, char *argv[])
          { MFEM_ABORT("The time step crashed!"); }
          t = t_old;
          S = S_old;
-         t_LO = t_old;
-         S_LO = S_old_LO;
+         if (idp_limit)
+         {
+            S_LO = S_old_LO;
+         }
          hydro.ResetQuadratureData();
          if (Mpi::Root()) { cout << "Repeating step " << ti << endl; }
          if (steps < max_tsteps) { last_step = false; }
@@ -1085,28 +1110,14 @@ int main(int argc, char *argv[])
       // and the oper object might have redirected the mesh positions to those.
       pmesh->NewNodes(x_gf, false);
 
-      pmesh_lo->NewNodes(x_gf_LO, false);
-      double pct_corrected, rel_mass_corrected;
-      hydro_LO.SetMassConservativeDensity(S_LO, pct_corrected, rel_mass_corrected);
-      x_gf_LO.SyncAliasMemory(S_LO);
-      sv_gf_LO.SyncAliasMemory(S_LO);
-      v_gf_LO.SyncAliasMemory(S_LO);
-      ste_gf_LO.SyncAliasMemory(S_LO);
-
-      /* Map LO rho onto coarse HO space MIN/MAX */
-      for (int i = 0; i < sv_gf_LO.Size(); i++)
-      {
-         rho_gf_LO[i] = 1./sv_gf_LO[i];
-      }
-
-      /* Limit the higher order solution */
+      // Do the same case for the low order approximation
       if (idp_limit)
       {
-         hydro.ComputeDensity(rho_gf); // the only time this function should be called
-         rho_gf_limited = rho_gf;
-         // idpl->LocalConservativeLimit(rho_gf_LO, rho_gf_limited);
-         idpl->LimitGlobal(rho_gf_LO, rho_gf_limited);
-         rho_gf = rho_gf_limited;
+         x_gf_LO.SyncAliasMemory(S_LO);
+         sv_gf_LO.SyncAliasMemory(S_LO);
+         v_gf_LO.SyncAliasMemory(S_LO);
+         ste_gf_LO.SyncAliasMemory(S_LO);
+         pmesh_lo->NewNodes(x_gf_LO, false);
       }
 
       if (last_step || (ti % vis_steps) == 0)
@@ -1148,26 +1159,29 @@ int main(int argc, char *argv[])
          }
 
          // Fill grid function with mass information
-         hydro_LO.CheckMassConservation(S_LO, mc_gf_LO);
+         if (idp_limit)
+         {
+            hydro_LO.CheckMassConservation(S_LO, mc_gf_LO);
+         }
 
          // Make sure all ranks have sent their 'v' solution before initiating
          // another set of GLVis connections (one from each rank):
          MPI_Barrier(pmesh->GetComm());
 
-         if ((visualization || pview || visit || gfprint) && !idp_limit) { hydro.ComputeDensity(rho_gf); }
+         if (visualization || pview || visit || gfprint) { hydro.ComputeDensity(rho_gf); }
          if (visualization)
          {
             int Wx = 0, Wy = 0; // window position
             int Ww = 350, Wh = 350; // window size
             int offx = Ww+10, offy = Wh + 45; // window offsets
-            // if (problem != 0 && problem != 4)
-            // {
             hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
                                           "Density", Wx, Wy, Ww, Wh);
             Wx += offx;
-            hydrodynamics::VisualizeField(vis_rho_limited, vishost, visport, rho_gf_limited,
-                                          "Density limited", Wx, Wy, Ww, Wh);
-            // }
+            if (idp_limit)
+            {
+               hydrodynamics::VisualizeField(vis_rho_limited, vishost, visport, rho_gf_limited,
+                                             "Density limited", Wx, Wy, Ww, Wh);
+            }
             Wx += offx;
             hydrodynamics::VisualizeField(vis_v, vishost, visport,
                                           v_gf, "Velocity", Wx, Wy, Ww, Wh);
@@ -1177,21 +1191,22 @@ int main(int argc, char *argv[])
                                           Wx, Wy, Ww,Wh);
             
             /* LO visualization */
-            Wx = 0; Wy += offy;
-            // if (problem != 0 && problem != 4)
-            // {
-            hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
-                                          "LO Density", Wx, Wy, Ww, Wh);
-            // }
-            Wx += offx;
-            hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
-                                          "LO Velocity", Wx, Wy, Ww, Wh);
-            Wx += offx;
-            hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
-                                          "LO Specific Total Energy", Wx, Wy, Ww, Wh);
-            Wx += offx;
-            hydrodynamics::VisualizeField(vis_mc_LO, vishost, visport, mc_gf_LO,
-                                          "LO Mass loss", Wx, Wy, Ww, Wh);
+            if (idp_limit)
+            {
+               Wx = 0; Wy += offy;
+               hydrodynamics::VisualizeField(vis_rho_LO, vishost, visport, rho_gf_LO,
+                                             "LO Density", Wx, Wy, Ww, Wh);
+               Wx += offx;
+               hydrodynamics::VisualizeField(vis_v_LO, vishost, visport, v_gf_LO,
+                                             "LO Velocity", Wx, Wy, Ww, Wh);
+               Wx += offx;
+               hydrodynamics::VisualizeField(vis_ste_LO, vishost, visport, ste_gf_LO,
+                                             "LO Specific Total Energy", Wx, Wy, Ww, Wh);
+               Wx += offx;
+               hydrodynamics::VisualizeField(vis_mc_LO, vishost, visport, mc_gf_LO,
+                                             "LO Mass loss", Wx, Wy, Ww, Wh);
+            }
+            
          }
 
          if (visit)
@@ -1245,8 +1260,6 @@ int main(int argc, char *argv[])
             e_ofs.close();
          }
       }
-
-      MFEM_VERIFY(t == t_LO, "Current time should be the same between high order and low order solvers.\n");
 
       // Problems checks
       if (check)
@@ -1320,7 +1333,11 @@ int main(int argc, char *argv[])
    */
    if (problem_class->has_exact_solution())
    {
-      hydro.ComputeDensity(rho_gf);
+      if (idp_limit) {
+         rho_gf = rho_gf_limited;
+      } else {
+         hydro.ComputeDensity(rho_gf);
+      }
 
       ostringstream convergence_filename;
       convergence_filename << basename << "/convergence/np" << num_tasks;
@@ -1467,7 +1484,6 @@ int main(int argc, char *argv[])
 
    // Free the used memory.
    delete ode_solver;
-   delete ode_solver_LO;
    delete pmesh_lo;
    delete pmesh;
    delete idpl;
@@ -1738,6 +1754,36 @@ static void Checks(const int ti, const double nrm, int &chk)
          const int it = it_norms[dim-2][p][i][0];
          const double norm = it_norms[dim-2][p][i][1];
          check(p, it, norm);
+      }
+   }
+}
+
+void MassesAndVolumesAtPosition(const ParGridFunction &u, const GridFunction &x,
+                                Vector &el_mass, Vector &el_vol)
+{
+   // Only the order of the transformation matters.
+   auto *Tr = x.FESpace()->GetMesh()->GetElementTransformation(0);
+   const FiniteElement *fe = u.ParFESpace()->GetFE(0);
+   const IntegrationRule &ir = MassIntegrator::GetRule(*fe, *fe, *Tr);
+   const int nqp = ir.GetNPoints();
+   const int NE = x.FESpace()->GetNE();
+   cout << "nqp = " << nqp << ", NE = " << NE << endl;
+
+   GeometricFactors geom(x, ir, GeometricFactors::DETERMINANTS);
+   auto qi_u = u.FESpace()->GetQuadratureInterpolator(ir);
+   Vector u_qvals(nqp * NE);
+   // As an L2 function, u has the correct EVector lexicographic ordering.
+   qi_u->Values(u, u_qvals);
+
+   for (int k = 0; k < NE; k++)
+   {
+      el_mass(k) = 0.0;
+      el_vol(k)  = 0.0;
+      for (int q = 0; q < nqp; q++)
+      {
+         const IntegrationPoint &ip = ir.IntPoint(q);
+         el_mass(k) += ip.weight * geom.detJ(k*nqp + q) * u_qvals(k*nqp + q);
+         el_vol(k)  += ip.weight * geom.detJ(k*nqp + q);
       }
    }
 }

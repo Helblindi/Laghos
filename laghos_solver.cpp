@@ -505,7 +505,7 @@ void LagrangianHydroOperator::UpdateMesh(const Vector &S) const
 
 void LagrangianHydroOperator::UpdateMassMatrices() const
 {
-   std::cout << "LagrangianHydroOperator::UpdateMassMatrices()" << std::endl;
+   // std::cout << "LagrangianHydroOperator::UpdateMassMatrices()" << std::endl;
    if (p_assembly)
    {
       MFEM_ABORT("Not implemented.");
@@ -528,6 +528,9 @@ void LagrangianHydroOperator::UpdateMassMatrices() const
 
    // Standard reassembly for the velocity mass matrix.
    Mv.Update();
+   // auto dfbi = Mv.GetDBFI();
+   // std::cout << "dfbi.size = " << dfbi->Size() << std::endl;
+   // Mv.BilinearForm::operator=(0.0);
    Mv.Assemble();
    Mv_spmat_copy = Mv.SpMat();
 }
@@ -858,8 +861,15 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
             const int idx = z * nqp + q;
             // Assuming piecewise constant gamma that moves with the mesh.
             gamma_b[idx] = gamma_gf(z_id);
-            // rho_b[idx] = qdata.rho0DetJ0w(z_id*nqp + q) / detJ / ip.weight;
-            rho_b[idx] = rho_vals(q);
+            if (use_limiting)
+            {
+               // If limiting is used, use the limited density
+               rho_b[idx] = rho_vals(q);
+            }
+            else
+            {
+               rho_b[idx] = qdata.rho0DetJ0w(z_id*nqp + q) / detJ / ip.weight;
+            }
             e_b[idx] = fmax(0.0, e_vals(q));
          }
          ++z_id;
