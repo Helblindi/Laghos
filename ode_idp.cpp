@@ -14,6 +14,7 @@ void ODESolverIDP::Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOpera
 {
    ODESolver::Init(f_HO_);
    this->f_HO = dynamic_cast<hydrodynamics::LagrangianHydroOperator*>(&f_HO_);
+   MFEM_VERIFY(f_HO, "ODESolverIDP expect LagrangianHydroOperator.");
    this->f_LO = &f_LO_;
 }
 
@@ -110,6 +111,13 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    //      | 1/6  1/3  1/3  1/6
    MFEM_ASSERT(f_LO != NULL, "f_LO not set. Use SetIDPOperator");
 
+   // In each sub-step:
+   // - Solve the HO stage of RK method
+   // - Solve the LO stage of RK method
+   // - Compute unlimited HO density
+   // - Compute LO density
+   // - Limit the HO density
+
    /**********  HO stage 1 **********/
    f_HO->SetTime(t);
    f_HO->Mult(x, k); // k1
@@ -125,12 +133,13 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    f_LO->Mult(*S_LO, kl); // k1
    add(*S_LO, dt/2, kl, yl);
    add(*S_LO, dt/6, kl, zl);
-   // f_LO->EnforceL2BC(*S_LO, t, dt);
+
    double pct_corrected, rel_mass_corrected;
-   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
 
    /* Limit HO Density */
+   f_HO->Update(y);
    f_HO->ComputeDensity(*rho_gf_limited);
+   f_LO->SetMassConservativeDensity(yl, pct_corrected, rel_mass_corrected);
    f_LO->ComputeDensity(yl, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -151,8 +160,9 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    zl.Add(dt/3, kl);
 
    /* Limit HO Density */
+   f_HO->Update(y);
    f_HO->ComputeDensity(*rho_gf_limited);
-   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
+   f_LO->SetMassConservativeDensity(yl, pct_corrected, rel_mass_corrected);
    f_LO->ComputeDensity(yl, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -171,8 +181,9 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    zl.Add(dt/3, kl);
 
    /* Limit HO Density */
+   f_HO->Update(y);
    f_HO->ComputeDensity(*rho_gf_limited);
-   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
+   f_LO->SetMassConservativeDensity(yl, pct_corrected, rel_mass_corrected);
    f_LO->ComputeDensity(yl, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -192,6 +203,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    /* No need to limit at this stage, just one final limit on the whole update*/
 
    /* Limit HO Density */
+   f_HO->Update(x);
    f_HO->ComputeDensity(*rho_gf_limited);
    f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
@@ -263,12 +275,13 @@ void RK2SolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    f_LO->Mult(*S_LO, dxdtl); // k1l
    add(*S_LO, (1. - b)*dt, dxdtl, x1l); 
    S_LO->Add(a*dt, dxdtl);
-   // f_LO->EnforceL2BC(*S_LO, t, dt);
+
    double pct_corrected, rel_mass_corrected;
-   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
 
    /* Limiting */
+   f_HO->Update(x);
    f_HO->ComputeDensity(*rho_gf_limited);
+   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -285,12 +298,11 @@ void RK2SolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    f_LO->SetTime(t + a*dt);
    f_LO->Mult(*S_LO, dxdtl);
    add(x1l, b*dt, dxdtl, *S_LO);
-   // f_LO->EnforceL2BC(*S_LO, t, dt);
-   // double pct_corrected, rel_mass_corrected;
-   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
 
    /* Limiting */
+   f_HO->Update(x);
    f_HO->ComputeDensity(*rho_gf_limited);
+   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -346,11 +358,12 @@ void ForwardEulerSolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    f_LO->SetTime(t);
    f_LO->Mult(*S_LO, dxdtl);
    S_LO->Add(dt, dxdtl);
-   // f_LO->EnforceL2BC(*S_LO, t, dt);
+
    double pct_corrected, rel_mass_corrected;
    f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
 
    /* Limiting */
+   f_HO->Update(x);
    f_HO->ComputeDensity(*rho_gf_limited);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);

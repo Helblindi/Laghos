@@ -200,6 +200,12 @@ public:
    /* IDP */
    void GetMeshVelocity(ParGridFunction &_dx_gf) const { _dx_gf = this->dx_gf; }
    void UpdateMassMatrices() const;
+   void Update(const Vector &S) const
+   {
+      // Update the mesh configuration and the velocity mass matrix.
+      UpdateMesh(S);
+      UpdateQuadratureData(S);
+   }
 
    // Calls UpdateQuadratureData to compute the new qdata.dt_estimate.
    double GetTimeStepEstimate(const Vector &S) const;
