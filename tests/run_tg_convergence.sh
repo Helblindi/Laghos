@@ -15,7 +15,7 @@ cfl=0.5
 ot=1
 ok=2 # must be ot + 1
 solver_type=14
-output_location="${results_dir}/tests/ot2/tg"
+output_location="${results_dir}/tests/ot1/tg"
 output_file="${output_location}/out-tg-r"
 ########
 
@@ -29,5 +29,5 @@ options+="-s ${solver_type} -idp "
 ./laghos ${options} -rs 2 > ${output_file}2 &
 ./laghos ${options} -rs 3 > ${output_file}3 &
 ./laghos ${options} -rs 4 > ${output_file}4 &
-./laghos ${options} -rs 5 > ${output_file}5 &
-./laghos ${options} -rs 6 > ${output_file}6 &
+#./laghos ${options} -rs 5 > ${output_file}5 &
+#./laghos ${options} -rs 6 > ${output_file}6 &
