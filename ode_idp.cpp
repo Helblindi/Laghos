@@ -155,6 +155,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    f_LO->SetMV(dx_gf_LO);
 
    f_LO->SetTime(t + dt/2);
+   f_LO->BuildDijMatrix(yl);
    f_LO->Mult(yl, kl); // k2
    add(*S_LO, dt/2, kl, yl);
    zl.Add(dt/3, kl);
@@ -176,6 +177,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    P->Mult(dx_gf_HO, dx_gf_LO);
    f_LO->SetMV(dx_gf_LO);
 
+   f_LO->BuildDijMatrix(yl);
    f_LO->Mult(yl, kl); // k3
    add(*S_LO, dt, kl, yl);
    zl.Add(dt/3, kl);
@@ -198,6 +200,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    f_LO->SetMV(dx_gf_LO);
 
    f_LO->SetTime(t + dt);
+   f_LO->BuildDijMatrix(yl);
    f_LO->Mult(yl, kl); // k4
    add(zl, dt/6, kl, *S_LO);
    /* No need to limit at this stage, just one final limit on the whole update*/
