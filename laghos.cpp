@@ -833,7 +833,7 @@ int main(int argc, char *argv[])
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
-   
+
    /* Construct mass vectors */
    ParLinearForm *mHO = new ParLinearForm(&L2FESpace);
    mHO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
@@ -865,7 +865,7 @@ int main(int argc, char *argv[])
                                                  use_viscosity, mm, cfl);
 
    /* Set options for LO */
-   hydro_LO.SetMVOption(2);
+   hydro_LO.SetMVOption(-1);
    hydro_LO.SetMVLinOption(false);
    hydro_LO.SetFVOption(2);
    hydro_LO.SetProblem(problem);
@@ -1051,7 +1051,7 @@ int main(int argc, char *argv[])
          double dt_LO = hydro_LO.GetTimestep();
          if (dt > dt_LO)
          {
-            cout << "dt: " << dt << ", lo dt: " << dt_LO << endl;
+            // cout << "dt: " << dt << ", lo dt: " << dt_LO << endl;
             dt = dt_LO;
             // MFEM_ABORT("Time step too large.\n");
          }
@@ -1059,18 +1059,15 @@ int main(int argc, char *argv[])
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
+      // cout << setprecision(15) << "-pre step rho gf limited:-\n";
+      // rho_gf_limited.Print(cout);
+      // cout << "--\n";
+      cout << setprecision(15);
       ode_solver->Step(S, t, dt);
+      // cout << "-post step rho gf limited:-\n";
+      // rho_gf_limited.Print(cout);
+      // cout << "--\n";
 
-      /* Compute cell masses */
-      // Vector el_mass(NE), el_vol(NE);
-      // hydro.ComputeDensity(rho_gf);
-      // if(idp_limit)
-      // {
-      //    rho_gf = rho_gf_limited;
-      // }
-      // MassesAndVolumesAtPosition(rho_gf, x_gf, el_mass, el_vol);
-      // cout << "masses: ";
-      // el_mass.Print(cout);
 
       // Increment steps
       steps++;
@@ -1117,6 +1114,30 @@ int main(int argc, char *argv[])
          v_gf_LO.SyncAliasMemory(S_LO);
          ste_gf_LO.SyncAliasMemory(S_LO);
          pmesh_lo->NewNodes(x_gf_LO, false);
+      }
+
+      /* Compute cell masses */
+      Vector el_mass(NE), el_vol(NE);
+      hydro.ComputeDensity(rho_gf);
+      if(idp_limit)
+      {
+         cout << "setting rho_gf to limited vals\n";
+         rho_gf = rho_gf_limited;
+      }
+      MassesAndVolumesAtPosition(rho_gf, x_gf, el_mass, el_vol);
+      // cout << "masses: ";
+      // el_mass.Print(cout);
+      // cout << "volumes: ";
+      // el_vol.Print(cout);
+      // cout << "original masses: ";
+      // mHO_hpv->GlobalVector()->Print(cout);
+      double sum_current_masses = el_mass.Sum(), sum_original_masses = mHO_hpv->GlobalVector()->Sum();
+      double _val = abs(sum_current_masses - sum_original_masses);
+      cout << "_val: " << _val << endl;
+      if (_val > 1.e-12)
+      {
+         cout << setprecision(12) << "sum current masses: " << sum_current_masses << ", sum original: " << sum_original_masses << endl;
+         MFEM_ABORT("Not mass conservative.");
       }
 
       if (last_step || (ti % vis_steps) == 0)
@@ -1257,6 +1278,40 @@ int main(int argc, char *argv[])
             e_ofs.precision(8);
             e_gf.SaveAsOne(e_ofs);
             e_ofs.close();
+
+            if (idp_limit)
+            {
+               std::ostringstream rho_max_name, rho_min_name, rho_LO_name, rho_limited_name;
+               rho_max_name << basename << "_" << ti << "_rho_max_idp";
+               rho_min_name << basename << "_" << ti << "_rho_min_idp";
+               rho_LO_name << basename << "_" << ti << "_rho_LO";
+               rho_limited_name << basename << "_" << ti << "_rho_limited";
+
+               ParGridFunction rho_gf_limited_max(&L2FESpace), rho_gf_limited_min(&L2FESpace);
+               idpl->GetRhoMax(rho_gf_limited_max);
+               idpl->GetRhoMin(rho_gf_limited_min);
+
+               std::ofstream rho_max_ofs(rho_max_name.str().c_str());
+               rho_max_ofs.precision(8);
+               rho_gf_limited_max.SaveAsOne(rho_max_ofs);
+               rho_max_ofs.close();
+
+               std::ofstream rho_min_ofs(rho_min_name.str().c_str());
+               rho_min_ofs.precision(8);
+               rho_gf_limited_min.SaveAsOne(rho_min_ofs);
+               rho_min_ofs.close();
+
+               std::ofstream rho_LO_ofs(rho_LO_name.str().c_str());
+               rho_LO_ofs.precision(8);
+               rho_gf_LO.SaveAsOne(rho_LO_ofs);
+               rho_LO_ofs.close();
+
+               std::ofstream rho_limited_ofs(rho_limited_name.str().c_str());
+               rho_limited_ofs.precision(8);
+               rho_gf_limited.SaveAsOne(rho_limited_ofs);
+               rho_limited_ofs.close();
+            }
+            
          }
       }
 
@@ -1766,7 +1821,6 @@ void MassesAndVolumesAtPosition(const ParGridFunction &u, const GridFunction &x,
    const IntegrationRule &ir = MassIntegrator::GetRule(*fe, *fe, *Tr);
    const int nqp = ir.GetNPoints();
    const int NE = x.FESpace()->GetNE();
-   cout << "nqp = " << nqp << ", NE = " << NE << endl;
 
    GeometricFactors geom(x, ir, GeometricFactors::DETERMINANTS);
    auto qi_u = u.FESpace()->GetQuadratureInterpolator(ir);
