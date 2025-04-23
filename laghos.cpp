@@ -845,6 +845,31 @@ int main(int argc, char *argv[])
    m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
    m->Assemble();
 
+   /* Check that the sum of the HO masses in each HO cell equal the mass in the LO cell */
+   for (int e = 0; e < NE; e++)
+   {
+      if (pmesh_lo->GetNE() != NE)
+      {
+         MFEM_WARNING("Number of elements in the low order mesh does not match the number of elements in the high order mesh.");
+         break;
+      }
+      const double lo_mass = m->Elem(e);
+      double ho_mass = 0.0;
+      Array<int> dofs;
+      L2FESpace.GetElementDofs(e, dofs);
+      for (int i = 0; i < dofs.Size(); i++)
+      {
+         const int dof = dofs[i];
+         ho_mass += mHO_hpv->Elem(dof);
+      }
+      cout << "el: " << e << " LO mass: " << lo_mass
+           << " HO mass: " << ho_mass << endl;
+      if (fabs(lo_mass - ho_mass) > 1e-12)
+      {
+         MFEM_ABORT("Masses do not match!");
+      }
+   }
+
    hydrodynamics::LagrangianHydroOperator hydro(S.Size(),
                                                 H1FESpace, L2FESpace, ess_tdofs,
                                                 rho0_coeff, rho0_gf,
@@ -1062,7 +1087,11 @@ int main(int argc, char *argv[])
       // cout << setprecision(15) << "-pre step rho gf limited:-\n";
       // rho_gf_limited.Print(cout);
       // cout << "--\n";
-      cout << setprecision(15);
+      // cout << setprecision(15);
+      // rho_gf_limited[0] = 0.1;
+      // rho_gf_limited[1] = 1.9;
+      // idpl->Limit(rho_gf_LO, rho_gf_limited);
+      // assert(false);
       ode_solver->Step(S, t, dt);
       // cout << "-post step rho gf limited:-\n";
       // rho_gf_limited.Print(cout);
