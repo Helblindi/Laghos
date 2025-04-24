@@ -228,6 +228,14 @@ int main(int argc, char *argv[])
    if (Mpi::Root()) { backend.Print(); }
    backend.SetGPUAwareMPI(gpu_aware_mpi);
 
+   /* IDP checks */
+   if (idp_limit)
+   {
+      cout << "checking idp_limit" << endl;
+      MFEM_VERIFY(ode_solver_type > 10, "If IDP is desired, must use IDP ODE solver");
+      MFEM_VERIFY(order_q >= 4, "IDP requires at least 4th order integration rule");
+   }
+
    // On all processors, use the default builtin 1D/2D/3D mesh or read the
    // serial one given on the command line.
    Mesh *mesh;
@@ -846,6 +854,8 @@ int main(int argc, char *argv[])
    m->Assemble();
 
    /* Check that the sum of the HO masses in each HO cell equal the mass in the LO cell */
+   bool _mass_match = true;
+   cout << "Checking that inital masses match..." << endl;
    for (int e = 0; e < NE; e++)
    {
       if (pmesh_lo->GetNE() != NE)
@@ -866,8 +876,13 @@ int main(int argc, char *argv[])
            << " HO mass: " << ho_mass << endl;
       if (fabs(lo_mass - ho_mass) > 1e-12)
       {
-         MFEM_ABORT("Masses do not match!");
+         _mass_match = false;
+         break;
       }
+   }
+   if (!_mass_match)
+   {
+      MFEM_ABORT("Masses do not initially match!");
    }
 
    hydrodynamics::LagrangianHydroOperator hydro(S.Size(),
@@ -1016,7 +1031,7 @@ int main(int argc, char *argv[])
    ode_solver->Init(hydro);
    if (idp_limit)
    {
-      idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv);
+      idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv, order_q);
       // Set the IDP limiter and LO solver for the RK4 solver
       static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetIDPOperator(hydro_LO);
       static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetLOStateVector(S_LO);
@@ -1084,19 +1099,7 @@ int main(int argc, char *argv[])
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
-      // cout << setprecision(15) << "-pre step rho gf limited:-\n";
-      // rho_gf_limited.Print(cout);
-      // cout << "--\n";
-      // cout << setprecision(15);
-      // rho_gf_limited[0] = 0.1;
-      // rho_gf_limited[1] = 1.9;
-      // idpl->Limit(rho_gf_LO, rho_gf_limited);
-      // assert(false);
       ode_solver->Step(S, t, dt);
-      // cout << "-post step rho gf limited:-\n";
-      // rho_gf_limited.Print(cout);
-      // cout << "--\n";
-
 
       // Increment steps
       steps++;
@@ -1150,22 +1153,22 @@ int main(int argc, char *argv[])
       hydro.ComputeDensity(rho_gf);
       if(idp_limit)
       {
-         cout << "setting rho_gf to limited vals\n";
+         // cout << "setting rho_gf to limited vals\n";
          rho_gf = rho_gf_limited;
       }
       MassesAndVolumesAtPosition(rho_gf, x_gf, el_mass, el_vol);
-      // cout << "masses: ";
-      // el_mass.Print(cout);
-      // cout << "volumes: ";
-      // el_vol.Print(cout);
-      // cout << "original masses: ";
-      // mHO_hpv->GlobalVector()->Print(cout);
       double sum_current_masses = el_mass.Sum(), sum_original_masses = mHO_hpv->GlobalVector()->Sum();
       double _val = abs(sum_current_masses - sum_original_masses);
-      cout << "_val: " << _val << endl;
       if (_val > 1.e-12)
       {
+         cout << "|sum_current_masses - sum_original_masses| = " << _val << endl;
          cout << setprecision(12) << "sum current masses: " << sum_current_masses << ", sum original: " << sum_original_masses << endl;
+         cout << "masses: ";
+         el_mass.Print(cout);
+         cout << "volumes: ";
+         el_vol.Print(cout);
+         cout << "original masses: ";
+         mHO_hpv->GlobalVector()->Print(cout);
          MFEM_ABORT("Not mass conservative.");
       }
 
