@@ -326,8 +326,7 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    ParGridFunction v;
    const int VsizeH1 = H1.GetVSize();
    v.MakeRef(&H1, *sptr, VsizeH1);
-   dx_gf.MakeRef(&H1, *sptr, VsizeH1);
-   // dx_gf = 0.;
+   dx_gf = v; // for get mesh velocity function
    // Set dx_dt = v (explicit).
    ParGridFunction dx;
    dx.MakeRef(&H1, dS_dt, 0);
