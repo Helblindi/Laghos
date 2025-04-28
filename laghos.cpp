@@ -856,14 +856,39 @@ int main(int argc, char *argv[])
    /* Check that the sum of the HO masses in each HO cell equal the mass in the LO cell */
    bool _mass_match = true;
    cout << "Checking that inital masses match..." << endl;
+   /* Need to build coarse to fine table in the case that the meshes are not the same */
+   Table coarse_to_fine;
+   if (pmesh_lo->GetNE() != NE)
+   {
+      MFEM_WARNING("Number of elements in the low order mesh does not match the number of elements in the high order mesh.");
+      const auto &mtrans = pmesh_lo->GetRefinementTransforms();      
+      mtrans.MakeCoarseToFineTable(coarse_to_fine);
+      // cout << "coarse_to_fine table:\n";
+      // coarse_to_fine.Print(cout);
+   }
    for (int e = 0; e < NE; e++)
    {
+      /* Compute LO mass */
+      double lo_mass = 0.;
       if (pmesh_lo->GetNE() != NE)
       {
-         MFEM_WARNING("Number of elements in the low order mesh does not match the number of elements in the high order mesh.");
-         break;
+         /* 
+         LO mesh is not the same as the HO mesh. Will need to sum 
+         up the masses from the LO cells that make up the HO cell
+         */
+         Array<int> cell_dofs;
+         coarse_to_fine.GetRow(e, cell_dofs);
+         for (int cell_dof_it = 0; cell_dof_it < cell_dofs.Size(); cell_dof_it++)
+         {
+            int j = cell_dofs[cell_dof_it];
+            lo_mass += m->Elem(j);
+         }
       }
-      const double lo_mass = m->Elem(e);
+      else {
+         lo_mass = m->Elem(e);
+      }
+
+      /* Compute HO mass */
       double ho_mass = 0.0;
       Array<int> dofs;
       L2FESpace.GetElementDofs(e, dofs);
@@ -885,10 +910,13 @@ int main(int argc, char *argv[])
       MFEM_ABORT("Masses do not initially match!");
    }
 
+   MFEM_WARNING("hydro instantiation does not depend on parameter for idp_limit. Hence the mass matrices will NEVER be updated.\n");
+
    hydrodynamics::LagrangianHydroOperator hydro(S.Size(),
                                                 H1FESpace, L2FESpace, ess_tdofs,
                                                 rho0_coeff, rho0_gf,
-                                                idp_limit, rho_gf_limited,
+                                                // idp_limit, rho_gf_limited,
+                                                false, rho_gf_limited,
                                                 mat_gf, source, cfl,
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
