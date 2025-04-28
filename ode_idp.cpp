@@ -10,18 +10,20 @@ ODESolverIDP::ODESolverIDP() : ODESolver(), f_LO(NULL), f_HO(NULL) {
    mem_type = Device::GetHostMemoryType(); 
 }
 
-void ODESolverIDP::Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOperator<2> &f_LO_)
+void ODESolverIDP::Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_LO_)
 {
    ODESolver::Init(f_HO_);
    this->f_HO = dynamic_cast<hydrodynamics::LagrangianHydroOperator*>(&f_HO_);
    MFEM_VERIFY(f_HO, "ODESolverIDP expect LagrangianHydroOperator.");
-   this->f_LO = &f_LO_;
+   this->f_LO = dynamic_cast<hydroLO::LagrangianLOOperator<2>*>(&f_LO_);
+   MFEM_VERIFY(f_LO, "ODESolverIDP expects LagrangianLOOperator<2>");
 }
 
-void ODESolverIDP::SetIDPOperator(hydroLO::LagrangianLOOperator<2> &f_LO_) 
+void ODESolverIDP::SetIDPOperator(TimeDependentOperator &f_LO_) 
 {
    std::cout << "ODESolverIDP::SetIDPOperator" << std::endl;
-   this->f_LO = &f_LO_; 
+   this->f_LO = dynamic_cast<hydroLO::LagrangianLOOperator<2>*>(&f_LO_);
+   MFEM_VERIFY(f_LO, "ODESolverIDP expects LagrangianLOOperator<2>");
 }
 
 void ODESolverIDP::SetGridTransferOperator(const Operator &P_) 
@@ -78,7 +80,7 @@ void RK4SolverIDP::Init(TimeDependentOperator &f_HO_)
    z.SetSize(f->Width(), mem_type);
 }
 
-void RK4SolverIDP::Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOperator<2> &f_LO_)
+void RK4SolverIDP::Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_LO_)
 {
    ODESolverIDP::Init(f_HO_, f_LO_);
    int n = f->Width();
@@ -92,7 +94,7 @@ void RK4SolverIDP::Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOpera
    zl.SetSize(nl, mem_type);
 }
 
-void RK4SolverIDP::SetIDPOperator(hydroLO::LagrangianLOOperator<2> &f_LO_)
+void RK4SolverIDP::SetIDPOperator(TimeDependentOperator &f_LO_)
 {
    ODESolverIDP::SetIDPOperator(f_LO_);
    int n = f_LO->Width();
@@ -113,10 +115,12 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
 
    // In each sub-step:
    // - Solve the HO stage of RK method
-   // - Solve the LO stage of RK method
+   // - Solve LO using FE 
    // - Compute unlimited HO density
    // - Compute LO density
    // - Limit the HO density
+
+   // MFEM_ABORT("LO is always a FE.");
 
    /**********  HO stage 1 **********/
    f_HO->SetTime(t);
@@ -132,7 +136,6 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    f_LO->SetTime(t);
    f_LO->Mult(*S_LO, kl); // k1
    add(*S_LO, dt/2, kl, yl);
-   add(*S_LO, dt/6, kl, zl);
 
    double pct_corrected, rel_mass_corrected;
 
@@ -156,9 +159,8 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
 
    f_LO->SetTime(t + dt/2);
    f_LO->BuildDijMatrix(yl);
-   f_LO->Mult(yl, kl); // k2
+   f_LO->Mult(*S_LO, kl);
    add(*S_LO, dt/2, kl, yl);
-   zl.Add(dt/3, kl);
 
    /* Limit HO Density */
    f_HO->Update(y);
@@ -178,9 +180,8 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    f_LO->SetMV(dx_gf_LO);
 
    f_LO->BuildDijMatrix(yl);
-   f_LO->Mult(yl, kl); // k3
+   f_LO->Mult(*S_LO, kl);
    add(*S_LO, dt, kl, yl);
-   zl.Add(dt/3, kl);
 
    /* Limit HO Density */
    f_HO->Update(y);
@@ -201,9 +202,8 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
 
    f_LO->SetTime(t + dt);
    f_LO->BuildDijMatrix(yl);
-   f_LO->Mult(yl, kl); // k4
-   add(zl, dt/6, kl, *S_LO);
-   /* No need to limit at this stage, just one final limit on the whole update*/
+   f_LO->Mult(*S_LO, kl);
+   S_LO->Add(dt, kl);
 
    /* Limit HO Density */
    f_HO->Update(x);
@@ -227,7 +227,7 @@ void RK2SolverIDP::Init(TimeDependentOperator &f_HO_)
    x1.SetSize(n, mem_type);
 }
 
-void RK2SolverIDP::Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOperator<2> &f_LO_)
+void RK2SolverIDP::Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_LO_)
 {
    ODESolverIDP::Init(f_HO_, f_LO_);
    int n = f_HO->Width();
@@ -239,7 +239,7 @@ void RK2SolverIDP::Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOpera
    x1l.SetSize(nl, mem_type);
 }
 
-void RK2SolverIDP::SetIDPOperator(hydroLO::LagrangianLOOperator<2> &f_LO_)
+void RK2SolverIDP::SetIDPOperator(TimeDependentOperator &f_LO_)
 {
    ODESolverIDP::SetIDPOperator(f_LO_);
    int n = f_LO->Width();
@@ -270,6 +270,7 @@ void RK2SolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    x.Add(a*dt, dxdt);
 
    /* LO stage 1 */
+   MFEM_ABORT("LO is always a FE.");
    f_HO->GetMeshVelocity(dx_gf_HO);
    P->Mult(dx_gf_HO, dx_gf_LO);
    f_LO->SetMV(dx_gf_LO);
@@ -323,7 +324,7 @@ void ForwardEulerSolverIDP::Init(TimeDependentOperator &f_HO_)
    dxdt.SetSize(n, mem_type);
 }
 
-void ForwardEulerSolverIDP::Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOperator<2> &f_LO_)
+void ForwardEulerSolverIDP::Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_LO_)
 {
    ODESolverIDP::Init(f_HO_, f_LO_);
    int n = f_HO->Width();
@@ -333,7 +334,7 @@ void ForwardEulerSolverIDP::Init(TimeDependentOperator &f_HO_, hydroLO::Lagrangi
    dxdtl.SetSize(nl, mem_type);
 }
 
-void ForwardEulerSolverIDP::SetIDPOperator(hydroLO::LagrangianLOOperator<2> &f_LO_)
+void ForwardEulerSolverIDP::SetIDPOperator(TimeDependentOperator &f_LO_)
 {
    ODESolverIDP::SetIDPOperator(f_LO_);
    int n = f_LO->Width();
@@ -363,11 +364,11 @@ void ForwardEulerSolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    S_LO->Add(dt, dxdtl);
 
    double pct_corrected, rel_mass_corrected;
-   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
 
    /* Limiting */
    f_HO->Update(x);
    f_HO->ComputeDensity(*rho_gf_limited);
+   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 

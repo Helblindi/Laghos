@@ -27,7 +27,7 @@ public:
    ODESolverIDP();
 
    /* Setters */
-   virtual void SetIDPOperator(hydroLO::LagrangianLOOperator<2> &f_LO_);
+   virtual void SetIDPOperator(TimeDependentOperator &f_LO_);
    void SetIDPLimiter(IDPLimiter &limiter_) { this->limiter = &limiter_; }
    void SetLOStateVector(Vector &S_LO_) { this->S_LO = &S_LO_; }
    void SetGridTransferOperator(const Operator &P_);
@@ -35,7 +35,7 @@ public:
    void SetRhoGFLO(ParGridFunction &rho_gf_LO_) { this->rho_gf_LO = &rho_gf_LO_; }
 
    /* Misc */
-   virtual void Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOperator<2> &f_LO_);
+   virtual void Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_LO_);
    void StepLimited(const Vector &x, const double &t, const double &dt, Vector &k);
 };
 
@@ -48,9 +48,9 @@ private:
 public:
    void Init(TimeDependentOperator &f_) override;
 
-   void Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOperator<2> &f_LO_) override;
+   void Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_LO_) override;
 
-   void SetIDPOperator(hydroLO::LagrangianLOOperator<2> &f_LO_) override;
+   void SetIDPOperator(TimeDependentOperator &f_LO_) override;
 
    void Step(Vector &x, double &t, double &dt) override;
 };
@@ -72,9 +72,9 @@ public:
 
    void Init(TimeDependentOperator &f_HO_) override;
 
-   void Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOperator<2> &f_LO_) override;
+   void Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_LO_) override;
 
-   void SetIDPOperator(hydroLO::LagrangianLOOperator<2> &f_LO_) override;
+   void SetIDPOperator(TimeDependentOperator &f_LO_) override;
 
    void Step(Vector &x, real_t &t, real_t &dt) override;
 };
@@ -89,9 +89,9 @@ public:
 
    void Init(TimeDependentOperator &f_HO_) override;
 
-   void Init(TimeDependentOperator &f_HO_, hydroLO::LagrangianLOOperator<2> &f_LO_) override;
+   void Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_LO_) override;
 
-   void SetIDPOperator(hydroLO::LagrangianLOOperator<2> &f_LO_) override;
+   void SetIDPOperator(TimeDependentOperator &f_LO_) override;
 
    void Step(Vector &x, double &t, double &dt) override;
 };
