@@ -897,10 +897,12 @@ int main(int argc, char *argv[])
          const int dof = dofs[i];
          ho_mass += mHO_hpv->Elem(dof);
       }
-      cout << "el: " << e << " LO mass: " << lo_mass
-           << " HO mass: " << ho_mass << endl;
+      
       if (fabs(lo_mass - ho_mass) > 1e-12)
       {
+         cout << "mass mismatch\n";
+         cout << "el: " << e << " LO mass: " << lo_mass
+              << " HO mass: " << ho_mass << endl;
          _mass_match = false;
          break;
       }
