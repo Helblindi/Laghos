@@ -858,11 +858,13 @@ int main(int argc, char *argv[])
    cout << "Checking that inital masses match..." << endl;
    /* Need to build coarse to fine table in the case that the meshes are not the same */
    Table coarse_to_fine;
+   Array<int> tabrow;
+
    if (pmesh_lo->GetNE() != NE)
    {
       MFEM_WARNING("Number of elements in the low order mesh does not match the number of elements in the high order mesh.");
-      const auto &mtrans = pmesh_lo->GetRefinementTransforms();      
-      mtrans.MakeCoarseToFineTable(coarse_to_fine);
+      const CoarseFineTransformations &cf_tr = pmesh_lo->GetRefinementTransforms();
+      cf_tr.MakeCoarseToFineTable(coarse_to_fine);
       // cout << "coarse_to_fine table:\n";
       // coarse_to_fine.Print(cout);
    }
@@ -876,11 +878,10 @@ int main(int argc, char *argv[])
          LO mesh is not the same as the HO mesh. Will need to sum 
          up the masses from the LO cells that make up the HO cell
          */
-         Array<int> cell_dofs;
-         coarse_to_fine.GetRow(e, cell_dofs);
-         for (int cell_dof_it = 0; cell_dof_it < cell_dofs.Size(); cell_dof_it++)
+         coarse_to_fine.GetRow(e, tabrow);
+         for (int cell_dof_it = 0; cell_dof_it < tabrow.Size(); cell_dof_it++)
          {
-            int j = cell_dofs[cell_dof_it];
+            int j = tabrow[cell_dof_it];
             lo_mass += m->Elem(j);
          }
       }
@@ -917,8 +918,8 @@ int main(int argc, char *argv[])
    hydrodynamics::LagrangianHydroOperator hydro(S.Size(),
                                                 H1FESpace, L2FESpace, ess_tdofs,
                                                 rho0_coeff, rho0_gf,
-                                                // idp_limit, rho_gf_limited,
-                                                false, rho_gf_limited,
+                                                idp_limit, rho_gf_limited,
+                                                // false, rho_gf_limited,
                                                 mat_gf, source, cfl,
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
