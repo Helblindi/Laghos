@@ -17,7 +17,7 @@ class ODESolverIDP : public ODESolver
 {
 protected:
    hydrodynamics::LagrangianHydroOperator *f_HO;
-   hydroLO::LagrangianLOOperator<2> *f_LO; // Could be LagrangianLOOperator, would simplify things
+   hydroLO::LagrangianLOOperator *f_LO; // Could be LagrangianLOOperator, would simplify things
    ParGridFunction dx_gf_HO, dx_gf_LO;
    ParGridFunction *rho_gf_LO, *rho_gf_limited;
    const Operator *P;

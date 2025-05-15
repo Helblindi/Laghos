@@ -18,6 +18,7 @@
 #define MFEM_LAGHOS_SOLVER
 
 #include "mfem.hpp"
+#include "test_problems_include.h"
 #include "laghos_assembly.hpp"
 
 #ifdef MFEM_USE_MPI
@@ -126,6 +127,7 @@ protected:
    const ParGridFunction &rho_gf_lim;
    GridFunctionCoefficient rho_lim_coeff;
    bool use_limiting;
+   const hydroLO::ProblemBase *pb;
    // Velocity mass matrix and local inverses of the energy mass matrices. These
    // are constant in time, due to the pointwise mass conservation property.
    mutable ParBilinearForm Mv;
@@ -162,7 +164,8 @@ protected:
    {
       for (int v = 0; v < nvalues; v++)
       {
-         p[v]  = (gamma[v] - 1.0) * rho[v] * e[v];
+         // p[v]  = (gamma[v] - 1.0) * rho[v] * e[v];
+         p[v] = pb->pressure(rho[v], e[v], gamma[v]);
          cs[v] = sqrt(gamma[v] * (gamma[v]-1.0) * e[v]);
       }
    }
@@ -179,6 +182,7 @@ public:
                            ParGridFunction &rho0_gf,
                            const bool _use_limiting,
                            const ParGridFunction &rho_gf_limited,
+                           hydroLO::ProblemBase *_pb,
                            const ParGridFunction &gamma_gf,
                            const int source,
                            const double cfl,

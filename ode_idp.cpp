@@ -15,15 +15,15 @@ void ODESolverIDP::Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_L
    ODESolver::Init(f_HO_);
    this->f_HO = dynamic_cast<hydrodynamics::LagrangianHydroOperator*>(&f_HO_);
    MFEM_VERIFY(f_HO, "ODESolverIDP expect LagrangianHydroOperator.");
-   this->f_LO = dynamic_cast<hydroLO::LagrangianLOOperator<2>*>(&f_LO_);
-   MFEM_VERIFY(f_LO, "ODESolverIDP expects LagrangianLOOperator<2>");
+   this->f_LO = dynamic_cast<hydroLO::LagrangianLOOperator*>(&f_LO_);
+   MFEM_VERIFY(f_LO, "ODESolverIDP expects LagrangianLOOperator");
 }
 
 void ODESolverIDP::SetIDPOperator(TimeDependentOperator &f_LO_) 
 {
    std::cout << "ODESolverIDP::SetIDPOperator" << std::endl;
-   this->f_LO = dynamic_cast<hydroLO::LagrangianLOOperator<2>*>(&f_LO_);
-   MFEM_VERIFY(f_LO, "ODESolverIDP expects LagrangianLOOperator<2>");
+   this->f_LO = dynamic_cast<hydroLO::LagrangianLOOperator*>(&f_LO_);
+   MFEM_VERIFY(f_LO, "ODESolverIDP expects LagrangianLOOperator");
 }
 
 void ODESolverIDP::SetGridTransferOperator(const Operator &P_) 

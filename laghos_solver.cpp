@@ -96,6 +96,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
                                                  ParGridFunction &rho0_gf,
                                                  const bool _use_limiting,
                                                  const ParGridFunction &rho_gf_limited,
+                                                 hydroLO::ProblemBase *_pb,
                                                  const ParGridFunction &gamma_gf,
                                                  const int source,
                                                  const double cfl,
@@ -131,6 +132,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    use_limiting(_use_limiting),
    rho_gf_lim(rho_gf_limited),
    rho_lim_coeff(&rho_gf_limited),
+   pb(_pb),
    gamma_gf(gamma_gf),
    Mv(&H1), Mv_spmat_copy(),
    Me(l2dofs_cnt, l2dofs_cnt, NE),
@@ -529,7 +531,7 @@ void LagrangianHydroOperator::UpdateMassMatrices() const
    Mv.Update();
    // auto dfbi = Mv.GetDBFI();
    // std::cout << "dfbi.size = " << dfbi->Size() << std::endl;
-   // Mv.BilinearForm::operator=(0.0);
+   Mv.BilinearForm::operator=(0.0);
    Mv.Assemble();
    Mv_spmat_copy = Mv.SpMat();
 }
@@ -1078,6 +1080,7 @@ void QUpdateBody(const int NE, const int e,
    kernels::CalcInverse<DIM>(J, Jinv);
    const double R = inv_weight * d_rho0DetJ0w[eq] / detJ;
    const double E = fmax(0.0, d_e_quads[eq]);
+   MFEM_ABORT("Pressure computation is hardcoded to ideal gas.");
    const double P = (gamma - 1.0) * R * E;
    const double S = sqrt(gamma * (gamma - 1.0) * E);
    for (int k = 0; k < DIM2; k++) { stress[k] = 0.0; }

@@ -449,23 +449,21 @@ int main(int argc, char *argv[])
    }
 
    // Set up problem
-   // const int dim_c = dim;
-   const static int dim_c = 2;
    MFEM_WARNING("Will not get proper results from 3d tests.\n");
-   hydroLO::ProblemBase<dim_c> * problem_class = NULL;
+   hydroLO::ProblemBase * problem_class = NULL;
    switch (problem)
    {
       case 0: // Taylor-Green
-         problem_class = new hydroLO::TaylorGreenProblem<dim_c>();
+         problem_class = new hydroLO::TaylorGreenProblem(dim);
          break;
       case 1: // Sedov
-         problem_class = new hydroLO::SedovLLNLProblem<dim_c>();
+         problem_class = new hydroLO::SedovLLNLProblem(dim);
          break;
       case 2: // Sod
-         problem_class = new hydroLO::SodProblem<dim_c>();
+         problem_class = new hydroLO::SodProblem(dim);
          break;
       case 3: // Triple Point
-         problem_class = new hydroLO::TriplePoint<dim_c>();
+         problem_class = new hydroLO::TriplePoint(dim);
          break;
       case 4: // gresho vortex
       case 5: // 2D Riemann problem
@@ -473,38 +471,38 @@ int main(int argc, char *argv[])
       case 7: // 2D Rayleigh-Taylor instability
          MFEM_ABORT("Not implemented.\n");
       case 8: // Radial Sod
-         problem_class = new hydroLO::SodRadial<dim_c>();
+         problem_class = new hydroLO::SodRadial(dim);
          break;
       case 9: // Isentropic Vortex, stationary center
-         problem_class = new hydroLO::IsentropicVortex<dim_c>();
+         problem_class = new hydroLO::IsentropicVortex(dim);
          break;
       case 10: // Noh
-         problem_class = new hydroLO::NohProblem<dim_c>();
+         problem_class = new hydroLO::NohProblem(dim);
          break;
       case 11: // Saltzmann
-         problem_class = new hydroLO::SaltzmannProblem<dim_c>();
+         problem_class = new hydroLO::SaltzmannProblem(dim);
          break;
       /* VDW */
       case 12:
-         problem_class = new hydroLO::VdwTest1<dim_c>();
+         problem_class = new hydroLO::VdwTest1(dim);
          break;
       case 13:
-         problem_class = new hydroLO::VdwTest2<dim_c>();
+         problem_class = new hydroLO::VdwTest2(dim);
          break;
       case 14:
-         problem_class = new hydroLO::VdwTest3<dim_c>();
+         problem_class = new hydroLO::VdwTest3(dim);
          break;
       case 15:
-         problem_class = new hydroLO::VdwTest4<dim_c>();
+         problem_class = new hydroLO::VdwTest4(dim);
          break;
       case 16: // Kidder shell
-         problem_class = new hydroLO::KidderProblem<dim_c>();
+         problem_class = new hydroLO::KidderProblem(dim);
          break;
       case 17: // Kidder ball
-         problem_class = new hydroLO::KidderBallProblem<dim_c>();
+         problem_class = new hydroLO::KidderBallProblem(dim);
          break;
       case 18: // ICF
-         problem_class = new hydroLO::ICFProblem<dim_c>();
+         problem_class = new hydroLO::ICFProblem(dim);
          break;
       case 21: // Sedov
       {
@@ -513,26 +511,26 @@ int main(int argc, char *argv[])
          // Vector params(2);
          // params[0] = hmax, params[1] = pmesh->GetElementVolume(0);
 
-         // problem_class = new hydroLO::SedovProblem<dim_c>();
+         // problem_class = new hydroLO::SedovProblem(dim);
          // problem_class->update(params, t_init);
          // // TODO: Will need to modify initialization of internal energy
          // //       if distorted meshes are used.
          // break;
       }
       case 40: // Smooth
-         problem_class = new hydroLO::SmoothWave<dim_c>();
+         problem_class = new hydroLO::SmoothWave(dim);
          break;
       case 41: // Lax
-         problem_class = new hydroLO::LaxProblem<dim_c>();
+         problem_class = new hydroLO::LaxProblem(dim);
          break;
       case 42: // Leblanc
-         problem_class = new hydroLO::LeblancProblem<dim_c>();
+         problem_class = new hydroLO::LeblancProblem(dim);
          break;
       case 43: // Riemann Problem
-         problem_class = new hydroLO::RiemannProblem<dim_c>();
+         problem_class = new hydroLO::RiemannProblem(dim);
          break;
       case 100:
-         problem_class = new hydroLO::TestBCs<dim_c>();
+         problem_class = new hydroLO::TestBCs(dim);
          break;
       default:
          MFEM_ABORT("Failed to initiate a problem.\n");
@@ -542,19 +540,19 @@ int main(int argc, char *argv[])
    // and Coefficient class requires std::function arguments
    using namespace std::placeholders;
    std::function<double(const Vector &,const double)> sv0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::sv0, problem_class, std::placeholders::_1, std::placeholders::_2);
+      std::bind(&hydroLO::ProblemBase::sv0, problem_class, std::placeholders::_1, std::placeholders::_2);
    std::function<void(const Vector &, const double, Vector &)> v0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::v0, problem_class, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+      std::bind(&hydroLO::ProblemBase::v0, problem_class, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
    std::function<double(const Vector &,const double)> ste0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::ste0, problem_class, std::placeholders::_1, std::placeholders::_2);
+      std::bind(&hydroLO::ProblemBase::ste0, problem_class, std::placeholders::_1, std::placeholders::_2);
    std::function<double(const Vector &,const double)> sie0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::sie0, problem_class, std::placeholders::_1, std::placeholders::_2);
+      std::bind(&hydroLO::ProblemBase::sie0, problem_class, std::placeholders::_1, std::placeholders::_2);
    std::function<double(const Vector &,const double)> rho0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::rho0, problem_class, std::placeholders::_1, std::placeholders::_2);
+      std::bind(&hydroLO::ProblemBase::rho0, problem_class, std::placeholders::_1, std::placeholders::_2);
    std::function<double(const Vector &,const double)> p0_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::p0, problem_class, std::placeholders::_1, std::placeholders::_2);
+      std::bind(&hydroLO::ProblemBase::p0, problem_class, std::placeholders::_1, std::placeholders::_2);
    std::function<double(const Vector &,const double)> gamma_func_static =
-      std::bind(&hydroLO::ProblemBase<dim_c>::gamma_func, problem_class, std::placeholders::_1, std::placeholders::_2);
+      std::bind(&hydroLO::ProblemBase::gamma_func, problem_class, std::placeholders::_1, std::placeholders::_2);
 
    // Define the parallel finite element spaces. We use:
    // - H1 (Gauss-Lobatto, continuous) for position and velocity.
@@ -920,6 +918,7 @@ int main(int argc, char *argv[])
                                                 rho0_coeff, rho0_gf,
                                                 idp_limit, rho_gf_limited,
                                                 // false, rho_gf_limited,
+                                                problem_class,
                                                 mat_gf, source, cfl,
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
@@ -928,12 +927,11 @@ int main(int argc, char *argv[])
    /* Various other parameters */
    bool use_viscosity = true;
    bool mm = true;
-   hydroLO::LagrangianLOOperator<dim_c> hydro_LO(S_LO.Size(), 
-                                                 LO_H1FESpace, LO_H1FESpace_L, 
-                                                 LO_L2FESpace, LO_L2VFESpace, 
-                                                 LO_CRFESpace, m, 
-                                                 problem_class, offset_LO, 
-                                                 use_viscosity, mm, cfl);
+   hydroLO::LagrangianLOOperator hydro_LO(dim, S_LO.Size(), LO_H1FESpace, 
+                                          LO_H1FESpace_L, LO_L2FESpace, 
+                                          LO_L2VFESpace, LO_CRFESpace, 
+                                          rho0_gf, m, problem_class, 
+                                          offset_LO, use_viscosity, 0, mm, cfl);
 
    /* Set options for LO */
    hydro_LO.SetMVOption(-1);
