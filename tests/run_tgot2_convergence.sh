@@ -12,11 +12,11 @@ cd $bin_dir
 # EDIT THESE PARAMS
 final_time=0.25
 cfl=0.5
-ot=1
-ok=2 # must be ot + 1
-oq=4 # must be >= 4
+ot=2
+ok=3 # must be ot + 1
+oq=6 # must be >= 4
 solver_type=14
-output_location="${results_dir}/tests/ot1/tg"
+output_location="${results_dir}/tests/ot2/tg"
 output_file="${output_location}/out-tg-r"
 ########
 

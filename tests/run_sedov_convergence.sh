@@ -10,17 +10,17 @@ results_dir="${bin_dir}/results"
 cd $bin_dir
 
 # EDIT THESE PARAMS
-final_time=0.25
+final_time=0.8
 cfl=0.5
 ot=1
 ok=2 # must be ot + 1
 oq=4 # must be >= 4
 solver_type=14
-output_location="${results_dir}/tests/ot1/tg"
-output_file="${output_location}/out-tg-r"
+output_location="${results_dir}/tests/ot1/sedov"
+output_file="${output_location}/out-sedov-r"
 ########
 
-options="-dim 2 -fa -p 0 -tf ${final_time} -cfl ${cfl} "
+options="-dim 2 -fa -p 1 -tf ${final_time} -cfl ${cfl} "
 options+="-ot ${ot} -ok ${ok} -oq ${oq} -k ${output_location} "
 options+="-s ${solver_type} -idp "
 
