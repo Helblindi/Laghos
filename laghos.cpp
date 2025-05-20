@@ -1526,7 +1526,7 @@ int main(int argc, char *argv[])
       /* Project 0 on all extrapolated cells, marked with attr = 99 */
       if (pmesh->attributes.Find(99) != -1)
       {
-         cout << "projecting zero on cells with attr 99\n";
+         if (Mpi::Root()) { cout << "Projecting zero on cells with attr 99\n"; }
          Vector _vec_zero(dim);
          _vec_zero = 0.;
          VectorConstantCoefficient _zero_vcc(_vec_zero);
