@@ -1193,19 +1193,15 @@ int main(int argc, char *argv[])
          rho_gf = rho_gf_limited;
       }
       MassesAndVolumesAtPosition(rho_gf, x_gf, el_mass, el_vol);
-      // MFEM_WARNING("Parallel TODO: Need to fix the following function to work in parallel");
-      double sum_current_masses = el_mass.Sum(), sum_original_masses = mHO_hpv->GlobalVector()->Sum();
-      double _val = abs(sum_current_masses - sum_original_masses) / sum_original_masses;
+      double sum_current_masses = el_mass.Sum(), global_sum_om = mHO_hpv->GlobalVector()->Sum();
+      double global_sum_cm;
+      MPI_Allreduce(&sum_current_masses, &global_sum_cm, 1, MPI_DOUBLE, MPI_SUM, pmesh->GetComm());
+      double _val = abs(global_sum_cm - global_sum_om) / global_sum_om;
       if (_val > 1.e-12)
       {
-         cout << "|sum_current_masses - sum_original_masses| = " << _val << endl;
-         cout << setprecision(12) << "sum current masses: " << sum_current_masses << ", sum original: " << sum_original_masses << endl;
-         cout << "masses: ";
-         el_mass.Print(cout);
-         cout << "volumes: ";
-         el_vol.Print(cout);
-         cout << "original masses: ";
-         mHO_hpv->GlobalVector()->Print(cout);
+         cout << "|global_sum_cm - global_sum_om| = " << _val << endl;
+         cout << setprecision(12) << "sum current masses: " << global_sum_cm << ", sum original: " << global_sum_om << endl;
+
          MFEM_ABORT("Not mass conservative.");
       }
 
