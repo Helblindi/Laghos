@@ -596,8 +596,6 @@ int main(int argc, char *argv[])
    /* Objects used to project HO velocity onto LO */
    ParGridFunction dx(&H1FESpace);
    ParGridFunction dx_LO(&LO_H1FESpace);
-   GridTransfer *mv_gt = new InterpolationGridTransfer(H1FESpace, LO_H1FESpace);
-   const Operator &P = mv_gt->ForwardOperator();
 
    cout << "LO L2 dofs: " << LO_L2FESpace.GetNDofs() << endl;
    cout << "LO H1 dofs: " << LO_H1FESpace.GetNDofs() << endl;
@@ -607,6 +605,7 @@ int main(int argc, char *argv[])
    // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
    Array<int> ess_tdofs, ess_vdofs;
+   if (problem_class->has_mv_boundary_conditions())
    {
       Array<int> ess_bdr(pmesh->bdr_attributes.Max()), dofs_marker, dofs_list;
       for (int d = 0; d < pmesh->Dimension(); d++)
@@ -851,67 +850,71 @@ int main(int argc, char *argv[])
    m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
    m->Assemble();
 
-   /* Check that the sum of the HO masses in each HO cell equal the mass in the LO cell */
-   bool _mass_match = true;
-   cout << "Checking that inital masses match..." << endl;
-   /* Need to build coarse to fine table in the case that the meshes are not the same */
-   Table coarse_to_fine;
-   Array<int> tabrow;
+   if (idp_limit)
+   {
+      cout << "checking that masses match..." << endl;
+      /* Check that the sum of the HO masses in each HO cell equal the mass in the LO cell */
+      bool _mass_match = true;
+      cout << "Checking that inital masses match..." << endl;
+      /* Need to build coarse to fine table in the case that the meshes are not the same */
+      Table coarse_to_fine;
+      Array<int> tabrow;
 
-   if (pmesh_lo->GetNE() != NE)
-   {
-      MFEM_WARNING("Number of elements in the low order mesh does not match the number of elements in the high order mesh.");
-      const CoarseFineTransformations &cf_tr = pmesh_lo->GetRefinementTransforms();
-      cf_tr.MakeCoarseToFineTable(coarse_to_fine);
-      // cout << "coarse_to_fine table:\n";
-      // coarse_to_fine.Print(cout);
-   }
-   for (int e = 0; e < NE; e++)
-   {
-      /* Compute LO mass */
-      double lo_mass = 0.;
       if (pmesh_lo->GetNE() != NE)
       {
-         /* 
-         LO mesh is not the same as the HO mesh. Will need to sum 
-         up the masses from the LO cells that make up the HO cell
-         */
-         coarse_to_fine.GetRow(e, tabrow);
-         for (int cell_dof_it = 0; cell_dof_it < tabrow.Size(); cell_dof_it++)
+         MFEM_WARNING("Number of elements in the low order mesh does not match the number of elements in the high order mesh.");
+         const CoarseFineTransformations &cf_tr = pmesh_lo->GetRefinementTransforms();
+         cf_tr.MakeCoarseToFineTable(coarse_to_fine);
+         // cout << "coarse_to_fine table:\n";
+         // coarse_to_fine.Print(cout);
+      }
+      for (int e = 0; e < NE; e++)
+      {
+         /* Compute LO mass */
+         double lo_mass = 0.;
+         if (pmesh_lo->GetNE() != NE)
          {
-            int j = tabrow[cell_dof_it];
-            lo_mass += m->Elem(j);
+            /* 
+            LO mesh is not the same as the HO mesh. Will need to sum 
+            up the masses from the LO cells that make up the HO cell
+            */
+            coarse_to_fine.GetRow(e, tabrow);
+            for (int cell_dof_it = 0; cell_dof_it < tabrow.Size(); cell_dof_it++)
+            {
+               int j = tabrow[cell_dof_it];
+               lo_mass += m->Elem(j);
+            }
+         }
+         else {
+            lo_mass = m->Elem(e);
+         }
+
+         /* Compute HO mass */
+         double ho_mass = 0.0;
+         Array<int> dofs;
+         L2FESpace.GetElementDofs(e, dofs);
+         for (int i = 0; i < dofs.Size(); i++)
+         {
+            const int dof = dofs[i];
+            ho_mass += mHO_hpv->Elem(dof);
+         }
+         
+         double val = fabs(lo_mass - ho_mass);
+         if (val > 1e-6)
+         {
+            cout << "val: " << val << endl;
+            cout << "!!!!!!!!!!!mass mismatch\n";
+            cout << "el: " << e << " LO mass: " << lo_mass
+               << " HO mass: " << ho_mass << endl;
+            _mass_match = false;
+            break;
          }
       }
-      else {
-         lo_mass = m->Elem(e);
-      }
-
-      /* Compute HO mass */
-      double ho_mass = 0.0;
-      Array<int> dofs;
-      L2FESpace.GetElementDofs(e, dofs);
-      for (int i = 0; i < dofs.Size(); i++)
-      {
-         const int dof = dofs[i];
-         ho_mass += mHO_hpv->Elem(dof);
-      }
-      
-      double val = fabs(lo_mass - ho_mass);
-      if (val > 1e-6)
-      {
-         cout << "val: " << val << endl;
-         cout << "!!!!!!!!!!!mass mismatch\n";
-         cout << "el: " << e << " LO mass: " << lo_mass
-              << " HO mass: " << ho_mass << endl;
-         _mass_match = false;
-         break;
-      }
+      // if (!_mass_match)
+      // {
+      //    MFEM_ABORT("Masses do not initially match!");
+      // }
    }
-   // if (!_mass_match)
-   // {
-   //    MFEM_ABORT("Masses do not initially match!");
-   // }
 
    // MFEM_WARNING("hydro instantiation does not depend on parameter for idp_limit. Hence the mass matrices will NEVER be updated.\n");
 
@@ -1062,6 +1065,8 @@ int main(int argc, char *argv[])
    ode_solver->Init(hydro);
    if (idp_limit)
    {
+      GridTransfer *mv_gt = new InterpolationGridTransfer(H1FESpace, LO_H1FESpace);
+      const Operator &P = mv_gt->ForwardOperator();
       idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv, order_q);
       // Set the IDP limiter and LO solver for the RK4 solver
       static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetIDPOperator(hydro_LO);
@@ -1188,6 +1193,7 @@ int main(int argc, char *argv[])
          rho_gf = rho_gf_limited;
       }
       MassesAndVolumesAtPosition(rho_gf, x_gf, el_mass, el_vol);
+      // MFEM_WARNING("Parallel TODO: Need to fix the following function to work in parallel");
       double sum_current_masses = el_mass.Sum(), sum_original_masses = mHO_hpv->GlobalVector()->Sum();
       double _val = abs(sum_current_masses - sum_original_masses) / sum_original_masses;
       if (_val > 1.e-12)
@@ -1520,6 +1526,25 @@ int main(int argc, char *argv[])
       //       }
       //    }
       // }
+
+      /* Project 0 on all extrapolated cells, marked with attr = 99 */
+      if (pmesh->attributes.Find(99) != -1)
+      {
+         cout << "projecting zero on cells with attr 99\n";
+         Vector _vec_zero(dim);
+         _vec_zero = 0.;
+         VectorConstantCoefficient _zero_vcc(_vec_zero);
+         // onto approx
+         rho_gf.ProjectCoefficient(_zero_vcc, 99);
+         v_gf.ProjectCoefficient(_zero_vcc, 99);
+         e_gf.ProjectCoefficient(_zero_vcc, 99);
+
+         // onto exact
+         rho_ex_gf.ProjectCoefficient(_zero_vcc, 99);
+         vel_ex_gf.ProjectCoefficient(_zero_vcc, 99);
+         sie_ex_gf.ProjectCoefficient(_zero_vcc, 99);
+         sv_ex_gf.ProjectCoefficient(_zero_vcc, 99);
+      }
 
       /* Exact grid function shows inf */
       // e_gf.Print(cout);
