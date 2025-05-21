@@ -165,8 +165,9 @@ protected:
       for (int v = 0; v < nvalues; v++)
       {
          // p[v]  = (gamma[v] - 1.0) * rho[v] * e[v];
+         // cs[v] = sqrt(gamma[v] * (gamma[v]-1.0) * e[v]);
          p[v] = pb->pressure(rho[v], e[v], gamma[v]);
-         cs[v] = sqrt(gamma[v] * (gamma[v]-1.0) * e[v]);
+         cs[v] = pb->sound_speed(rho[v], p[v], gamma[v]);
       }
    }
 
