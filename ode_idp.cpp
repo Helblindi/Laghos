@@ -142,7 +142,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    /* Limit HO Density */
    f_HO->Update(y);
    f_HO->ComputeDensity(*rho_gf_limited);
-   f_LO->SetMassConservativeDensity(yl, pct_corrected, rel_mass_corrected);
+   f_LO->SetMassConservativeDensity(yl);
    f_LO->ComputeDensity(yl, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -165,7 +165,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    /* Limit HO Density */
    f_HO->Update(y);
    f_HO->ComputeDensity(*rho_gf_limited);
-   f_LO->SetMassConservativeDensity(yl, pct_corrected, rel_mass_corrected);
+   f_LO->SetMassConservativeDensity(yl);
    f_LO->ComputeDensity(yl, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -186,7 +186,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    /* Limit HO Density */
    f_HO->Update(y);
    f_HO->ComputeDensity(*rho_gf_limited);
-   f_LO->SetMassConservativeDensity(yl, pct_corrected, rel_mass_corrected);
+   f_LO->SetMassConservativeDensity(yl);
    f_LO->ComputeDensity(yl, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -208,7 +208,7 @@ void RK4SolverIDP::Step(Vector &x, double &t, double &dt)
    /* Limit HO Density */
    f_HO->Update(x);
    f_HO->ComputeDensity(*rho_gf_limited);
-   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
+   f_LO->SetMassConservativeDensity(*S_LO);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -285,7 +285,7 @@ void RK2SolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    /* Limiting */
    f_HO->Update(x);
    f_HO->ComputeDensity(*rho_gf_limited);
-   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
+   f_LO->SetMassConservativeDensity(*S_LO);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -306,7 +306,7 @@ void RK2SolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    /* Limiting */
    f_HO->Update(x);
    f_HO->ComputeDensity(*rho_gf_limited);
-   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
+   f_LO->SetMassConservativeDensity(*S_LO);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
@@ -368,7 +368,7 @@ void ForwardEulerSolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    /* Limiting */
    f_HO->Update(x);
    f_HO->ComputeDensity(*rho_gf_limited);
-   f_LO->SetMassConservativeDensity(*S_LO, pct_corrected, rel_mass_corrected);
+   f_LO->SetMassConservativeDensity(*S_LO);
    f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
    limiter->Limit(*rho_gf_LO, *rho_gf_limited);
 
