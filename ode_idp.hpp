@@ -79,6 +79,19 @@ public:
    void Step(Vector &x, real_t &t, real_t &dt) override;
 };
 
+class RK2AvgSolverIDP : public ODESolverIDP
+{
+protected:
+   Vector V;
+   BlockVector dS_dt, S0, SLO0, dSLO_dt;
+public:
+   RK2AvgSolverIDP() { }
+   virtual void Init(TimeDependentOperator &f_HO_);
+   void Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_LO_) override;
+   void SetIDPOperator(TimeDependentOperator &f_LO_) override;
+   virtual void Step(Vector &S, double &t, double &dt) override;
+};
+
 class ForwardEulerSolverIDP : public ODESolverIDP
 {
 private:

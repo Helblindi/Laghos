@@ -62,11 +62,12 @@
 #include <fstream>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include "laghos_solvers.hpp"
 #include "laghos_solver.hpp"
 #include "laglos_solver.hpp"
 #include "test_problems_include.h"
 #include "limiter.h"
-#include "ode_idp.hpp"
+// #include "ode_idp.hpp"
 
 using std::cout;
 using std::endl;
@@ -107,7 +108,7 @@ int main(int argc, char *argv[])
    int order_e = 1;
    int order_q = -1;
    int order_e_lo = 0; // low-order approximation space
-   int order_v_lo = 2;
+   int order_v_lo = 1;
    bool idp_limit = false;
    int ode_solver_type = 4;
    double t_init = 0.0;
@@ -234,6 +235,10 @@ int main(int argc, char *argv[])
       cout << "checking idp_limit" << endl;
       MFEM_VERIFY(ode_solver_type > 10, "If IDP is desired, must use IDP ODE solver");
       MFEM_VERIFY(order_q >= 4, "IDP requires at least 4th order integration rule");
+      if (p_assembly)
+      {
+         MFEM_ABORT("IDP does not support partial assembly");
+      }
    }
 
    // On all processors, use the default builtin 1D/2D/3D mesh or read the
@@ -441,7 +446,7 @@ int main(int argc, char *argv[])
    ParMesh *pmesh_lo = NULL;
    if (order_e > 0)
    {
-      pmesh_lo = new ParMesh(ParMesh::MakeRefined(*pmesh, order_e, BasisType::ClosedUniform));
+      pmesh_lo = new ParMesh(ParMesh::MakeRefined(*pmesh, order_e + 1, BasisType::ClosedUniform));
    }
    else
    {
@@ -644,13 +649,19 @@ int main(int argc, char *argv[])
          ode_solver = new RK2AvgSolver;
          break;
       case 11:
-         ode_solver = new hydrodynamics::ForwardEulerSolverIDP();
+         ode_solver = new ForwardEulerIDPSolver();
          break;
       case 12:
-         ode_solver = new hydrodynamics::RK2SolverIDP(0.5);
+         ode_solver = new RK2IDPSolver();
+         break;
+      case 13:
+         ode_solver = new RK3IDPSolver();
          break;
       case 14:
-         ode_solver = new hydrodynamics::RK4SolverIDP;
+         ode_solver = new RK4IDPSolver();
+         break;
+      case 16:
+         ode_solver = new RK6IDPSolver();
          break;
       default:
          if (myid == 0)
@@ -766,7 +777,6 @@ int main(int argc, char *argv[])
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
    rho_gf_LO.ProjectCoefficient(rho0_coeff);
    rho_gf.ProjectGridFunction(l2_rho0_gf);
-   rho_gf_limited.ProjectGridFunction(l2_rho0_gf);
 
    if (problem == 1)
    {
@@ -846,8 +856,9 @@ int main(int argc, char *argv[])
    HypreParVector *mHO_hpv = mHO->ParallelAssemble();
 
    /* Assemble initial masses for low order approximation */
+   IntegrationRule LO_ir = IntRules.Get(pmesh_lo->GetElementBaseGeometry(0), 3*LO_H1FESpace.GetOrder(0) + LO_L2FESpace.GetOrder(0) - 1);;
    ParLinearForm *m = new ParLinearForm(&LO_L2FESpace);
-   m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
+   m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff, &LO_ir));
    m->Assemble();
 
    if (idp_limit)
@@ -862,7 +873,7 @@ int main(int argc, char *argv[])
 
       if (pmesh_lo->GetNE() != NE)
       {
-         MFEM_WARNING("Number of elements in the low order mesh does not match the number of elements in the high order mesh.");
+         // MFEM_WARNING("Number of elements in the low order mesh does not match the number of elements in the high order mesh.");
          const CoarseFineTransformations &cf_tr = pmesh_lo->GetRefinementTransforms();
          cf_tr.MakeCoarseToFineTable(coarse_to_fine);
          // cout << "coarse_to_fine table:\n";
@@ -917,43 +928,54 @@ int main(int argc, char *argv[])
    }
 
    // MFEM_WARNING("hydro instantiation does not depend on parameter for idp_limit. Hence the mass matrices will NEVER be updated.\n");
+   /* Build Low order solver */
+   /* Various other parameters */
+   bool use_viscosity = true;
+   bool mm = true;
+   hydroLO::LagrangianLOOperator * hydro_LO = NULL;
+
+   IDPLimiter *idpl = NULL;
+   if (idp_limit)
+   {
+      /*** Build Low-order solver */
+      hydro_LO = new hydroLO::LagrangianLOOperator(
+         dim, S_LO.Size(), LO_H1FESpace, LO_H1FESpace_L, LO_L2FESpace, 
+         LO_L2VFESpace, LO_CRFESpace, rho0_coeff, rho_gf_LO, m, LO_ir, problem_class, 
+         offset_LO, use_viscosity, 0, mm, cfl);
+      
+      hydro_LO->SetInitialMassesAndVolumes(S_LO);
+
+      /* Set options for LO */
+      hydro_LO->SetMVOption(-1);
+      hydro_LO->SetMVLinOption(false);
+      hydro_LO->SetFVOption(2);
+      hydro_LO->SetProblem(problem);
+      hydro_LO->SetDensityPP(true);
+      hydro_LO->SetComputeMV(false);
+
+      /*** Build limiter ***/
+      H1_FECollection H1FEC_LO_t(1, dim);
+      ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
+      H1_FECollection H1FEC_HO_t(order_v, dim);
+      ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t);   
+
+      GridTransfer *mv_gt = new InterpolationGridTransfer(H1FESpace, LO_H1FESpace);
+      const Operator &P = mv_gt->ForwardOperator();
+      idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv, order_q);
+   }
+   
 
    hydrodynamics::LagrangianHydroOperator hydro(S.Size(),
                                                 H1FESpace, L2FESpace, ess_tdofs,
                                                 rho0_coeff, rho0_gf,
-                                                idp_limit, rho_gf_limited,
-                                                // false, rho_gf_limited,
+                                                idp_limit,
                                                 problem_class,
-                                                mat_gf, source, cfl,
+                                                mat_gf, 
+                                                hydro_LO, idpl,
+                                                source, cfl,
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q);
-   
-   /* Various other parameters */
-   bool use_viscosity = true;
-   bool mm = true;
-   hydroLO::LagrangianLOOperator hydro_LO(dim, S_LO.Size(), LO_H1FESpace, 
-                                          LO_H1FESpace_L, LO_L2FESpace, 
-                                          LO_L2VFESpace, LO_CRFESpace, 
-                                          rho0_gf, m, problem_class, 
-                                          offset_LO, use_viscosity, 0, mm, cfl);
-
-   /* Set options for LO */
-   hydro_LO.SetMVOption(-1);
-   hydro_LO.SetMVLinOption(false);
-   hydro_LO.SetFVOption(2);
-   hydro_LO.SetProblem(problem);
-   hydro_LO.SetDensityPP(true);
-   hydro_LO.SetComputeMV(false);
-
-   /*** Build limiter ***/
-   IDPLimiter *idpl;
-
-   /* Construct continuous projection spaces */
-   H1_FECollection H1FEC_LO_t(1, dim);
-   ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
-   H1_FECollection H1FEC_HO_t(order_e, dim);
-   ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t);   
 
    socketstream vis_rho, vis_v, vis_e, vis_rho_limited;
    char vishost[] = "localhost";
@@ -965,6 +987,7 @@ int main(int argc, char *argv[])
    if (visualization || pview || visit) { hydro.ComputeDensity(rho_gf); }
    const double energy_init = hydro.InternalEnergy(e_gf) +
                               hydro.KineticEnergy(v_gf);
+   hydro.GetRhoGFLim(rho_gf_limited);
 
    if (visualization)
    {
@@ -1063,19 +1086,6 @@ int main(int argc, char *argv[])
    // time-step dt). The object oper is of type LagrangianHydroOperator that
    // defines the Mult() method that used by the time integrators.
    ode_solver->Init(hydro);
-   if (idp_limit)
-   {
-      GridTransfer *mv_gt = new InterpolationGridTransfer(H1FESpace, LO_H1FESpace);
-      const Operator &P = mv_gt->ForwardOperator();
-      idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv, order_q);
-      // Set the IDP limiter and LO solver for the RK4 solver
-      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetIDPOperator(hydro_LO);
-      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetLOStateVector(S_LO);
-      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetGridTransferOperator(P);
-      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetIDPLimiter(*idpl);
-      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetRhoGFLimited(rho_gf_limited);
-      static_cast<hydrodynamics::ODESolverIDP*>(ode_solver)->SetRhoGFLO(rho_gf_LO);
-   }
    hydro.ResetTimeStepEstimate();
 
    double t = t_init, t_LO = t_init, dt = hydro.GetTimeStepEstimate(S), t_old;
@@ -1121,16 +1131,17 @@ int main(int argc, char *argv[])
       /* Validate timestep and setup hydro for next step */
       if (idp_limit)
       {
-         hydro_LO.BuildDijMatrix(S_LO);
+         // hydro_LO->BuildDijMatrix(S_LO);
          // Check cfl restriction
-         hydro_LO.CalculateTimestep(S_LO);
-         double dt_LO = hydro_LO.GetTimestep();
-         if (dt > dt_LO)
-         {
-            // cout << "dt: " << dt << ", lo dt: " << dt_LO << endl;
-            dt = dt_LO;
-            // MFEM_ABORT("Time step too large.\n");
-         }
+         // hydro_LO->CalculateTimestep(S_LO);
+         // double dt_LO = hydro_LO->GetTimestep();
+         // if (dt > dt_LO)
+         // {
+         //    // cout << "dt: " << dt << ", lo dt: " << dt_LO << endl;
+         //    dt = dt_LO;
+         //    // MFEM_ABORT("Time step too large.\n");
+         // }
+         MFEM_WARNING("Check that lom satisfies cfl condition.\n");
       }
 
       // S is the vector of dofs, t is the current time, and dt is the time step
@@ -1151,10 +1162,10 @@ int main(int argc, char *argv[])
          { MFEM_ABORT("The time step crashed!"); }
          t = t_old;
          S = S_old;
-         if (idp_limit)
-         {
-            S_LO = S_old_LO;
-         }
+         // if (idp_limit)
+         // {
+         //    S_LO = S_old_LO;
+         // }
          hydro.ResetQuadratureData();
          if (Mpi::Root()) { cout << "Repeating step " << ti << endl; }
          if (steps < max_tsteps) { last_step = false; }
@@ -1175,14 +1186,14 @@ int main(int argc, char *argv[])
       pmesh->NewNodes(x_gf, false);
 
       // Do the same case for the low order approximation
-      if (idp_limit)
-      {
-         x_gf_LO.SyncAliasMemory(S_LO);
-         sv_gf_LO.SyncAliasMemory(S_LO);
-         v_gf_LO.SyncAliasMemory(S_LO);
-         ste_gf_LO.SyncAliasMemory(S_LO);
-         pmesh_lo->NewNodes(x_gf_LO, false);
-      }
+      // if (idp_limit)
+      // {
+      //    x_gf_LO.SyncAliasMemory(S_LO);
+      //    sv_gf_LO.SyncAliasMemory(S_LO);
+      //    v_gf_LO.SyncAliasMemory(S_LO);
+      //    ste_gf_LO.SyncAliasMemory(S_LO);
+      //    pmesh_lo->NewNodes(x_gf_LO, false);
+      // }
 
       /* Compute cell masses */
       Vector el_mass(NE), el_vol(NE);
@@ -1190,6 +1201,7 @@ int main(int argc, char *argv[])
       if(idp_limit)
       {
          // cout << "setting rho_gf to limited vals\n";
+         hydro.GetRhoGFLim(rho_gf_limited);
          rho_gf = rho_gf_limited;
       }
       MassesAndVolumesAtPosition(rho_gf, x_gf, el_mass, el_vol);
@@ -1246,14 +1258,18 @@ int main(int argc, char *argv[])
          // Fill grid function with mass information
          if (idp_limit)
          {
-            hydro_LO.CheckMassConservation(S_LO, mc_gf_LO);
+            double mass_loss;
+            hydro_LO->ValidateMassConservation(S_LO, mc_gf_LO, mass_loss);
          }
 
          // Make sure all ranks have sent their 'v' solution before initiating
          // another set of GLVis connections (one from each rank):
          MPI_Barrier(pmesh->GetComm());
 
-         if (visualization || pview || visit || gfprint) { hydro.ComputeDensity(rho_gf); }
+         if (visualization || pview || visit || gfprint) { 
+            hydro.ComputeDensity(rho_gf); 
+            hydro.GetRhoGFLim(rho_gf_limited);
+         }
          if (visualization)
          {
             int Wx = 0, Wy = 0; // window position
@@ -1453,6 +1469,7 @@ int main(int argc, char *argv[])
    if (problem_class->has_exact_solution())
    {
       if (idp_limit) {
+         // No need to reacquire rho_gf_limited
          rho_gf = rho_gf_limited;
       } else {
          hydro.ComputeDensity(rho_gf);

@@ -313,6 +313,113 @@ void RK2SolverIDP::Step(Vector &x, real_t &t, real_t &dt)
    t += dt;
 }
 
+void RK2AvgSolverIDP::Init(TimeDependentOperator &f_HO_)
+{
+   MFEM_WARNING("Will need to set f_LO using ODESolverIDP::SetIDPOperator");
+   this->f_LO = NULL;
+
+   ODESolver::Init(f_HO_);
+   this->f_HO = dynamic_cast<hydrodynamics::LagrangianHydroOperator*>(&f_HO_);
+   int n = f->Width();
+   dxdt.SetSize(n, mem_type);
+   x1.SetSize(n, mem_type);
+}
+
+void RK2AvgSolverIDP::Init(TimeDependentOperator &f_HO_, TimeDependentOperator &f_LO_)
+{
+   ODESolverIDP::Init(f_HO_, f_LO_);
+   int n = f_HO->Width();
+   dxdt.SetSize(n, mem_type);
+   x1.SetSize(n, mem_type);
+
+   int nl = f_LO->Width();
+   dxdtl.SetSize(nl, mem_type);
+   x1l.SetSize(nl, mem_type);
+}
+
+void RK2AvgSolverIDP::SetIDPOperator(TimeDependentOperator &f_LO_)
+{
+   ODESolverIDP::SetIDPOperator(f_LO_);
+   int n = f_LO->Width();
+   dxdtl.SetSize(n, mem_type);
+   x1l.SetSize(n, mem_type);
+}
+
+void RK2AvgSolverIDP::Step(Vector &S, real_t &t, real_t &dt)
+{
+   //  0 |
+   //  a |  a
+   // ---+--------
+   //    | 1-b  b      b = 1/(2a)
+
+   MFEM_ASSERT(f_HO != NULL, "f_HO not set. Use SetIDPOperator");
+   MFEM_ASSERT(f_LO != NULL, "f_LO not set. Use SetIDPOperator");
+   MFEM_ASSERT(S_LO != NULL, "S_LO not set. Use SetLOStateVector");
+   MFEM_ASSERT(P != NULL, "P not set. Use SetGridTransferOperator");
+   MFEM_ASSERT(rho_gf_limited != NULL, "rho_gf_limited not set. Use SetRhoGFLimited");
+   MFEM_ASSERT(limiter != NULL, "limiter not set. Use SetIDPLimiter");
+
+   // The monolithic BlockVector stores the unknown fields as follows:
+   // (Position, Velocity, Specific Internal Energy).
+   SLO0.Vector::operator=(*S_LO);
+   S0.Vector::operator=(S);
+   Vector &v0 = S0.GetBlock(1);
+   Vector &dx_dt = dS_dt.GetBlock(0);
+   Vector &dv_dt = dS_dt.GetBlock(1);
+
+   // In each sub-step:
+   // - Update the global state Vector S.
+   // - Compute dv_dt using S.
+   // - Update V using dv_dt.
+   // - Compute de_dt and dx_dt using S and V.
+
+   // -- 1.
+   // S is S0.
+   f_HO->UpdateMesh(S);
+   f_HO->SolveVelocity(S, dS_dt);
+   // V = v0 + 0.5 * dt * dv_dt;
+   add(v0, 0.5 * dt, dv_dt, V);
+   f_HO->SolveEnergy(S, V, dS_dt);
+   dx_dt = V;
+
+   // -- 2.
+   // S = S0 + 0.5 * dt * dS_dt;
+   add(S0, 0.5 * dt, dS_dt, S);
+
+   /* LO stage 1 */
+   f_HO->GetMeshVelocity(dx_gf_HO);
+   P->Mult(dx_gf_HO, dx_gf_LO);
+   f_LO->SetMV(dx_gf_LO);
+   f_LO->SetTime(t);
+   f_LO->Mult(*S_LO, dS_dtl); // k1l
+   add(SLO0, 0.5 * dt, dS_dtl, *S_LO);
+   f_LO->UpdateMesh(*S_LO);
+   f_LO->SetMassConservativeDensity(*S_LO);
+   
+   /* Limiting */
+   f_HO->ResetQuadratureData();
+   f_HO->UpdateMesh(S);
+   f_HO->ComputeDensity(*rho_gf_limited);
+   f_LO->ComputeDensity(*S_LO, *rho_gf_LO);
+   limiter->Limit(*rho_gf_LO, *rho_gf_limited);
+
+   // ---2
+   f_HO->SolveVelocity(S, dS_dt);
+   // V = v0 + 0.5 * dt * dv_dt;
+   add(v0, 0.5 * dt, dv_dt, V);
+   f_HO->SolveEnergy(S, V, dS_dt);
+   dx_dt = V;
+
+   /* LO stage 2 */
+
+   // -- 3.
+   // S = S0 + dt * dS_dt.
+   add(S0, dt, dS_dt, S);
+   f_HO->ResetQuadratureData();
+   t += dt;
+}
+
+
 void ForwardEulerSolverIDP::Init(TimeDependentOperator &f_HO_)
 {
    MFEM_WARNING("Will need to set f_LO using ODESolverIDP::SetIDPOperator");

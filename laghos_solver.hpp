@@ -18,8 +18,12 @@
 #define MFEM_LAGHOS_SOLVER
 
 #include "mfem.hpp"
+#include "mfem/fem/pgridfunc.hpp"
 #include "test_problems_include.h"
 #include "laghos_assembly.hpp"
+#include "laghos_solvers.hpp"
+#include "laglos_solver.hpp"
+#include "limiter.h"
 
 #ifdef MFEM_USE_MPI
 
@@ -96,7 +100,7 @@ public:
 
 // Given a solutions state (x, v, e), this class performs all necessary
 // computations to evaluate the new slopes (dx_dt, dv_dt, de_dt).
-class LagrangianHydroOperator : public TimeDependentOperator
+class LagrangianHydroOperator : public LimitedTimeDependentOperator
 {
 protected:
    ParFiniteElementSpace &H1, &L2;
@@ -122,12 +126,19 @@ protected:
    const double ftz_tol;
    const ParGridFunction &gamma_gf;
    // IDP
+   hydroLO::LagrangianLOOperator *lom;
+   IDPLimiter *idpl;
    MassIntegrator * mi;
    VectorMassIntegrator * vmi;
-   const ParGridFunction &rho_gf_lim;
+   ParGridFunction rho_gf_lim;
    GridFunctionCoefficient rho_lim_coeff;
    bool use_limiting;
    const hydroLO::ProblemBase *pb;
+   mutable BlockVector S_LO; // Low-order solution state
+   Array<int> block_offsets_LO;
+   void InitializeLOValues();
+   void UpdateLOBlockVector(const Vector &S) const;
+   GridTransfer *mv_gt;
    // Velocity mass matrix and local inverses of the energy mass matrices. These
    // are constant in time, due to the pointwise mass conservation property.
    mutable ParBilinearForm Mv;
@@ -182,9 +193,10 @@ public:
                            Coefficient &rho0_coeff,
                            ParGridFunction &rho0_gf,
                            const bool _use_limiting,
-                           const ParGridFunction &rho_gf_limited,
                            hydroLO::ProblemBase *_pb,
                            const ParGridFunction &gamma_gf,
+                           hydroLO::LagrangianLOOperator *lom,
+                           IDPLimiter *idpl,
                            const int source,
                            const double cfl,
                            const bool visc, const bool vort, const bool pa,
@@ -193,7 +205,8 @@ public:
    ~LagrangianHydroOperator();
 
    // Solve for dx_dt, dv_dt and de_dt.
-   virtual void Mult(const Vector &S, Vector &dS_dt) const;
+   virtual void MultUnlimited(const Vector &S, Vector &dS_dt) const;
+   virtual void LimitMult(const Vector &S, Vector &dS_dt) const;
 
    virtual MemoryClass GetMemoryClass() const
    { return Device::GetMemoryClass(); }
@@ -211,6 +224,7 @@ public:
       UpdateMesh(S);
       UpdateQuadratureData(S);
    }
+   void GetRhoGFLim(ParGridFunction &rho_gf) const { rho_gf = rho_gf_lim; }
 
    // Calls UpdateQuadratureData to compute the new qdata.dt_estimate.
    double GetTimeStepEstimate(const Vector &S) const;

@@ -95,9 +95,10 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
                                                  Coefficient &rho0_coeff,
                                                  ParGridFunction &rho0_gf,
                                                  const bool _use_limiting,
-                                                 const ParGridFunction &rho_gf_limited,
                                                  hydroLO::ProblemBase *_pb,
                                                  const ParGridFunction &gamma_gf,
+                                                 hydroLO::LagrangianLOOperator *_lom,
+                                                 IDPLimiter *_idpl,
                                                  const int source,
                                                  const double cfl,
                                                  const bool visc,
@@ -107,7 +108,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
                                                  const int cgiter,
                                                  double ftz,
                                                  const int oq) :
-   TimeDependentOperator(size),
+   LimitedTimeDependentOperator(size),
    H1(h1), L2(l2), H1c(H1.GetParMesh(), H1.FEColl(), 1),
    pmesh(H1.GetParMesh()),
    H1Vsize(H1.GetVSize()),
@@ -130,10 +131,12 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    p_assembly(p_assembly),
    cg_rel_tol(cgt), cg_max_iter(cgiter),ftz_tol(ftz),
    use_limiting(_use_limiting),
-   rho_gf_lim(rho_gf_limited),
-   rho_lim_coeff(&rho_gf_limited),
+   rho_gf_lim(&L2),
+   rho_lim_coeff(&rho_gf_lim),
    pb(_pb),
    gamma_gf(gamma_gf),
+   lom(_lom),
+   idpl(_idpl),
    Mv(&H1), Mv_spmat_copy(),
    Me(l2dofs_cnt, l2dofs_cnt, NE),
    Me_inv(l2dofs_cnt, l2dofs_cnt, NE),
@@ -203,6 +206,9 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
       {
          mi = new MassIntegrator(rho_lim_coeff, &ir);
          vmi = new VectorMassIntegrator(rho_lim_coeff, &ir);
+         InitializeLOValues();
+         /* Project onto rho_gf_lim */
+         rho_gf_lim.ProjectCoefficient(rho0_coeff);
       }
       else
       {
@@ -315,7 +321,7 @@ LagrangianHydroOperator::~LagrangianHydroOperator()
    // delete mi;
 }
 
-void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
+void LagrangianHydroOperator::MultUnlimited(const Vector &S, Vector &dS_dt) const
 {
    // Make sure that the mesh positions correspond to the ones in S. This is
    // needed only because some mfem time integrators don't update the solution
@@ -336,6 +342,33 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    SolveVelocity(S, dS_dt);
    SolveEnergy(S, v, dS_dt);
    qdata_is_current = false;
+}
+
+void LagrangianHydroOperator::LimitMult(const Vector &S, Vector &dS_dt) const
+{
+   if (!lom || !idpl)
+   {
+      MFEM_ABORT("LagrangianHydroOperator::LimitMult called without a "
+                 "LagrangianLOOperator or IDPLimiter");
+   }
+
+   const BlockVector block_X(const_cast<Vector&>(S), block_offsets);
+   BlockVector block_dS_dt(dS_dt, block_offsets);
+
+   UpdateLOBlockVector(S);
+
+   cout << "S\n";
+   S.Print(cout);
+   cout << "S_LO\n";
+   S_LO.Print(cout);
+
+   Vector dS_dt_LO(S_LO.Size());
+   lom->UpdateMesh(S_LO);
+   lom->BuildDijMatrix(S_LO);
+   lom->SolveHydro(S_LO, dS_dt_LO);
+
+
+   MFEM_ABORT("LagrangianHydroOperator::LimitMult not implemented");
 }
 
 void LagrangianHydroOperator::SolveVelocity(const Vector &S,
@@ -502,6 +535,66 @@ void LagrangianHydroOperator::UpdateMesh(const Vector &S) const
    Vector* sptr = const_cast<Vector*>(&S);
    x_gf.MakeRef(&H1, *sptr, 0);
    H1.GetParMesh()->NewNodes(x_gf, false);
+}
+
+void LagrangianHydroOperator::InitializeLOValues()
+{
+   if (!lom || !idpl)
+   {
+      MFEM_ABORT("LagrangianHydroOperator::InitializeLOValues called without a "
+                 "LagrangianLOOperator or IDPLimiter");
+   }
+   /* Initialize block offsets and S_LO */
+   block_offsets_LO = lom->GetBlockOffsets();
+   S_LO.Update(block_offsets_LO);
+
+   mv_gt = new InterpolationGridTransfer(H1, lom->GetH1FE());
+   // Forward operator retrieved with 
+   // const Operator &P = mv_gt->ForwardOperator();
+}
+
+void LagrangianHydroOperator::UpdateLOBlockVector(const Vector &S) const
+{
+   if (!lom || !idpl)
+   {
+      MFEM_ABORT("LagrangianHydroOperator::UpdateLOBlockVector called without a "
+                 "LagrangianLOOperator or IDPLimiter");
+   }
+   Vector* sptr = const_cast<Vector*>(&S);
+   ParGridFunction x_gf, v_gf, sie_gf;
+   x_gf.MakeRef(&H1, *sptr, block_offsets[0]);
+   v_gf.MakeRef(&H1, *sptr, block_offsets[1]);
+   sie_gf.MakeRef(&L2, *sptr, block_offsets[2]);
+
+   ParGridFunction x_gf_LO, sv_gf_LO, v_gf_LO, ste_gf_LO;
+   x_gf_LO.MakeRef(&lom->GetH1FE(), S_LO, block_offsets_LO[0]);
+   sv_gf_LO.MakeRef(&lom->GetL2FE(), S_LO, block_offsets_LO[1]);
+   v_gf_LO.MakeRef(&lom->GetL2VFE(), S_LO, block_offsets_LO[2]);
+   ste_gf_LO.MakeRef(&lom->GetL2FE(), S_LO, block_offsets_LO[3]);
+   
+   /* Convert x_gf to x_gf_LO */
+   const Operator &P = mv_gt->ForwardOperator();
+   P.Mult(x_gf, x_gf_LO);
+
+   /* Get LO specific volume */
+   assert(sv_gf_LO.Size() == rho_gf_lim.Size());
+   for (int i = 0; i < sv_gf_LO.Size(); i++)
+   {
+      sv_gf_LO[i] = 1. / rho_gf_lim[i];
+   }
+
+   /* LO velocity */
+   GridFunctionCoefficient v_gf_coeff(&v_gf);
+   v_gf_LO.ProjectCoefficient(v_gf_coeff);
+
+   /* LO specific total energy */
+   ParGridFunction sie_gf_LO(&lom->GetL2FE());
+   GridFunctionCoefficient sie_gf_coeff(&sie_gf);
+   sie_gf_LO.ProjectCoefficient(sie_gf_coeff);
+   for (int i = 0; i < ste_gf_LO.Size(); i++)
+   {
+      ste_gf_LO[i] = sie_gf_LO[i] + 0.5 * v_gf_LO[i] * v_gf_LO[i];
+   }
 }
 
 void LagrangianHydroOperator::UpdateMassMatrices() const
@@ -1080,7 +1173,6 @@ void QUpdateBody(const int NE, const int e,
    kernels::CalcInverse<DIM>(J, Jinv);
    const double R = inv_weight * d_rho0DetJ0w[eq] / detJ;
    const double E = fmax(0.0, d_e_quads[eq]);
-   MFEM_ABORT("Pressure computation is hardcoded to ideal gas.");
    const double P = (gamma - 1.0) * R * E;
    const double S = sqrt(gamma * (gamma - 1.0) * E);
    for (int k = 0; k < DIM2; k++) { stress[k] = 0.0; }

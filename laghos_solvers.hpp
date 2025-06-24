@@ -43,10 +43,10 @@ public:
    virtual void SetDt(real_t dt_) { dt = dt_; }
    virtual real_t GetDt() const { return dt; }
 
+   /* Function defaults to unlimited */
    void Mult(const Vector &u, Vector &k) const override
    {
       MultUnlimited(u, k);
-      LimitMult(u, k);
    }
 
    /// Perform the unlimited action of the operator
