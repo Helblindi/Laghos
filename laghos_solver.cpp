@@ -348,6 +348,14 @@ void LagrangianHydroOperator::LimitMult(const Vector &S, Vector &dS_dt) const
 {
    if (!lom || !idpl)
    {
+      if (!lom)
+      {
+         cout << "no lom\n";
+      }
+      if (!idpl)
+      {
+         cout << "no idpl\n";
+      }
       MFEM_ABORT("LagrangianHydroOperator::LimitMult called without a "
                  "LagrangianLOOperator or IDPLimiter");
    }
@@ -357,18 +365,25 @@ void LagrangianHydroOperator::LimitMult(const Vector &S, Vector &dS_dt) const
 
    UpdateLOBlockVector(S);
 
-   cout << "S\n";
-   S.Print(cout);
-   cout << "S_LO\n";
-   S_LO.Print(cout);
+   // Vector dS_dt_LO(S_LO.Size());
+   // lom->UpdateMesh(S_LO);
+   // lom->BuildDijMatrix(S_LO);
+   // lom->SolveHydro(S_LO, dS_dt_LO);
 
-   Vector dS_dt_LO(S_LO.Size());
+   Vector _SHO(S.Size());
+   Vector _SLO(S_LO.Size());
+   add(S, dt, dS_dt, _SHO);
+   // add(S_LO, dt, dS_dt_LO, _SLO);
+   UpdateLOBlockVector(_SHO);
    lom->UpdateMesh(S_LO);
-   lom->BuildDijMatrix(S_LO);
-   lom->SolveHydro(S_LO, dS_dt_LO);
+   lom->SetMassConservativeDensity(S_LO);
+   ParGridFunction LO_rho_gf(&lom->GetL2FE());
+   lom->ComputeDensity(S_LO, LO_rho_gf);
+   Update(_SHO);
+   ComputeDensity(rho_gf_lim);
+   idpl->Limit(LO_rho_gf, rho_gf_lim);
 
-
-   MFEM_ABORT("LagrangianHydroOperator::LimitMult not implemented");
+   // MFEM_ABORT("LagrangianHydroOperator::LimitMult not implemented");
 }
 
 void LagrangianHydroOperator::SolveVelocity(const Vector &S,

@@ -130,7 +130,7 @@ protected:
    IDPLimiter *idpl;
    MassIntegrator * mi;
    VectorMassIntegrator * vmi;
-   ParGridFunction rho_gf_lim;
+   mutable ParGridFunction rho_gf_lim;
    GridFunctionCoefficient rho_lim_coeff;
    bool use_limiting;
    const hydroLO::ProblemBase *pb;
@@ -225,6 +225,7 @@ public:
       UpdateQuadratureData(S);
    }
    void GetRhoGFLim(ParGridFunction &rho_gf) const { rho_gf = rho_gf_lim; }
+   void GetSLO(Vector &_S_LO) const { _S_LO = this->S_LO;}
 
    // Calls UpdateQuadratureData to compute the new qdata.dt_estimate.
    double GetTimeStepEstimate(const Vector &S) const;

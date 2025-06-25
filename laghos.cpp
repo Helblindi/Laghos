@@ -934,6 +934,11 @@ int main(int argc, char *argv[])
    bool mm = true;
    hydroLO::LagrangianLOOperator * hydro_LO = NULL;
 
+   /*** Build limiter ***/
+   H1_FECollection H1FEC_LO_t(1, dim);
+   ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
+   H1_FECollection H1FEC_HO_t(order_v, dim);
+   ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t); 
    IDPLimiter *idpl = NULL;
    if (idp_limit)
    {
@@ -951,13 +956,7 @@ int main(int argc, char *argv[])
       hydro_LO->SetFVOption(2);
       hydro_LO->SetProblem(problem);
       hydro_LO->SetDensityPP(true);
-      hydro_LO->SetComputeMV(false);
-
-      /*** Build limiter ***/
-      H1_FECollection H1FEC_LO_t(1, dim);
-      ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
-      H1_FECollection H1FEC_HO_t(order_v, dim);
-      ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t);   
+      hydro_LO->SetComputeMV(false);  
 
       GridTransfer *mv_gt = new InterpolationGridTransfer(H1FESpace, LO_H1FESpace);
       const Operator &P = mv_gt->ForwardOperator();
@@ -1147,7 +1146,7 @@ int main(int argc, char *argv[])
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
       ode_solver->Step(S, t, dt);
-
+      hydro.GetSLO(S_LO);
       // Increment steps
       steps++;
 
@@ -1186,14 +1185,14 @@ int main(int argc, char *argv[])
       pmesh->NewNodes(x_gf, false);
 
       // Do the same case for the low order approximation
-      // if (idp_limit)
-      // {
-      //    x_gf_LO.SyncAliasMemory(S_LO);
-      //    sv_gf_LO.SyncAliasMemory(S_LO);
-      //    v_gf_LO.SyncAliasMemory(S_LO);
-      //    ste_gf_LO.SyncAliasMemory(S_LO);
-      //    pmesh_lo->NewNodes(x_gf_LO, false);
-      // }
+      if (idp_limit)
+      {
+         x_gf_LO.SyncAliasMemory(S_LO);
+         sv_gf_LO.SyncAliasMemory(S_LO);
+         v_gf_LO.SyncAliasMemory(S_LO);
+         ste_gf_LO.SyncAliasMemory(S_LO);
+         pmesh_lo->NewNodes(x_gf_LO, false);
+      }
 
       /* Compute cell masses */
       Vector el_mass(NE), el_vol(NE);
