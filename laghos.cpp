@@ -830,7 +830,12 @@ int main(int argc, char *argv[])
       case 6: visc = true; break;
       case 7: source = 2; visc = true; vorticity = true;  break;
       case 8:
-      case 9: visc = true; break;
+      case 9: 
+      {
+         /* Imposing viscosity reduces order of convergence */
+         visc = false;
+         break;
+      }
       case 10: visc = true; break;
       case 11:
       case 12:
