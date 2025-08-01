@@ -862,9 +862,9 @@ int main(int argc, char *argv[])
 
    /* Assemble initial masses for low order approximation */
    IntegrationRule LO_ir = IntRules.Get(pmesh_lo->GetElementBaseGeometry(0), 3*LO_H1FESpace.GetOrder(0) + LO_L2FESpace.GetOrder(0) - 1);;
-   ParLinearForm *m = new ParLinearForm(&LO_L2FESpace);
-   m->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff, &LO_ir));
-   m->Assemble();
+   ParLinearForm *mLO = new ParLinearForm(&LO_L2FESpace);
+   mLO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff, &LO_ir));
+   mLO->Assemble();
 
    if (idp_limit)
    {
@@ -898,11 +898,11 @@ int main(int argc, char *argv[])
             for (int cell_dof_it = 0; cell_dof_it < tabrow.Size(); cell_dof_it++)
             {
                int j = tabrow[cell_dof_it];
-               lo_mass += m->Elem(j);
+               lo_mass += mLO->Elem(j);
             }
          }
          else {
-            lo_mass = m->Elem(e);
+            lo_mass = mLO->Elem(e);
          }
 
          /* Compute HO mass */
@@ -950,7 +950,7 @@ int main(int argc, char *argv[])
       /*** Build Low-order solver */
       hydro_LO = new hydroLO::LagrangianLOOperator(
          dim, S_LO.Size(), LO_H1FESpace, LO_H1FESpace_L, LO_L2FESpace, 
-         LO_L2VFESpace, LO_CRFESpace, rho0_coeff, rho_gf_LO, m, LO_ir, problem_class, 
+         LO_L2VFESpace, LO_CRFESpace, rho0_coeff, rho_gf_LO, mLO, LO_ir, problem_class, 
          offset_LO, use_viscosity, 0, mm, cfl);
       
       hydro_LO->SetInitialMassesAndVolumes(S_LO);
@@ -1648,7 +1648,7 @@ int main(int argc, char *argv[])
    delete idpl;
    delete problem_class;
    delete LO_CRFEC;
-   delete m;
+   delete mLO;
    // delete mv_gt;
 
    return 0;
