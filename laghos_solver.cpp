@@ -346,14 +346,10 @@ void LagrangianHydroOperator::MultUnlimited(const Vector &S, Vector &dS_dt) cons
 
 void LagrangianHydroOperator::LimitMult(const Vector &S, Vector &dS_dt) const
 {
-   if (!lom || !idpl)
-   {
-      if (!lom)
-      {
+   if (!lom || !idpl) {
+      if (!lom) {
          cout << "no lom\n";
-      }
-      if (!idpl)
-      {
+      } if (!idpl) {
          cout << "no idpl\n";
       }
       MFEM_ABORT("LagrangianHydroOperator::LimitMult called without a "
@@ -363,20 +359,35 @@ void LagrangianHydroOperator::LimitMult(const Vector &S, Vector &dS_dt) const
    const BlockVector block_X(const_cast<Vector&>(S), block_offsets);
    BlockVector block_dS_dt(dS_dt, block_offsets);
 
+   /* For the limiting procedure, the low order method must start at the same location as the high order method */
    UpdateLOBlockVector(S);
 
-   // Vector dS_dt_LO(S_LO.Size());
-   // lom->UpdateMesh(S_LO);
-   // lom->BuildDijMatrix(S_LO);
-   // lom->SolveHydro(S_LO, dS_dt_LO);
-
-   Vector _SHO(S.Size());
-   Vector _SLO(S_LO.Size());
-   add(S, dt, dS_dt, _SHO);
-   // add(S_LO, dt, dS_dt_LO, _SLO);
-   UpdateLOBlockVector(_SHO);
+   // TODO: Reconcile the following
+   // - Low order density is computed by post processing
+   // - To postprocess the density, the velocity is needed
+   // - The low order method when used to limit uses the high order velocity
+   Vector dS_dt_LO(S_LO.Size());
+   lom->SetDt(this->GetDt());
    lom->UpdateMesh(S_LO);
-   lom->SetMassConservativeDensity(S_LO);
+   lom->BuildCijMatrices();
+   lom->BuildDijMatrix(S_LO);
+   ParGridFunction mv_gf_HO, mv_gf_LO;
+   mv_gf_HO.MakeRef(&H1, dS_dt, block_offsets[0]);
+   mv_gf_LO.MakeRef(&lom->GetH1FE(), dS_dt_LO, block_offsets_LO[0]);
+
+   /* Convert HO mv to LO mv */
+   const Operator &P = mv_gt->ForwardOperator();
+   P.Mult(mv_gf_HO, mv_gf_LO);
+   lom->SetMV(mv_gf_LO);
+
+   /* Step forward idp lo solver */
+   lom->MultUnlimited(S_LO, dS_dt_LO);
+   lom->LimitMult(S_LO, dS_dt_LO);
+
+   /* Limit HO results */
+   Vector _SHO(S.Size());
+   add(S, dt, dS_dt, _SHO);
+   add(S_LO, dt, dS_dt_LO, S_LO);
    ParGridFunction LO_rho_gf(&lom->GetL2FE());
    lom->ComputeDensity(S_LO, LO_rho_gf);
    Update(_SHO);
@@ -570,6 +581,7 @@ void LagrangianHydroOperator::InitializeLOValues()
 
 void LagrangianHydroOperator::UpdateLOBlockVector(const Vector &S) const
 {
+   // cout << "LagrangianHydroOperator::UpdateLOBlockVector\n";
    if (!lom || !idpl)
    {
       MFEM_ABORT("LagrangianHydroOperator::UpdateLOBlockVector called without a "
@@ -610,6 +622,12 @@ void LagrangianHydroOperator::UpdateLOBlockVector(const Vector &S) const
    {
       ste_gf_LO[i] = sie_gf_LO[i] + 0.5 * v_gf_LO[i] * v_gf_LO[i];
    }
+
+   /* Sync memory */
+   x_gf_LO.SyncAliasMemory(S_LO);
+   sv_gf_LO.SyncAliasMemory(S_LO);
+   v_gf_LO.SyncAliasMemory(S_LO);
+   ste_gf_LO.SyncAliasMemory(S_LO);
 }
 
 void LagrangianHydroOperator::UpdateMassMatrices() const

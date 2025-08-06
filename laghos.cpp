@@ -916,10 +916,10 @@ int main(int argc, char *argv[])
          }
          
          double val = fabs(lo_mass - ho_mass);
-         if (val > 1e-6)
+         if (val > 1.e-12)
          {
             cout << "val: " << val << endl;
-            cout << "!!!!!!!!!!!mass mismatch\n";
+            MFEM_WARNING("Mass Mismatch!");
             cout << "el: " << e << " LO mass: " << lo_mass
                << " HO mass: " << ho_mass << endl;
             _mass_match = false;
@@ -961,11 +961,14 @@ int main(int argc, char *argv[])
       hydro_LO->SetFVOption(2);
       hydro_LO->SetProblem(problem);
       hydro_LO->SetDensityPP(true);
-      hydro_LO->SetComputeMV(false);  
+      hydro_LO->SetComputeMV(false);
+      
+      /* Print options used in low order method */
+      hydro_LO->PrintOptions();
 
       GridTransfer *mv_gt = new InterpolationGridTransfer(H1FESpace, LO_H1FESpace);
       const Operator &P = mv_gt->ForwardOperator();
-      idpl = new IDPLimiter(L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv, order_q);
+      idpl = new IDPLimiter(L2FESpace, LO_L2FESpace, H1FESpace_proj_LO, H1FESpace_proj_HO, *mHO_hpv, order_q);
    }
    
 
@@ -1135,23 +1138,22 @@ int main(int argc, char *argv[])
       /* Validate timestep and setup hydro for next step */
       if (idp_limit)
       {
-         // hydro_LO->BuildDijMatrix(S_LO);
+         hydro_LO->BuildDijMatrix(S_LO);
          // Check cfl restriction
-         // hydro_LO->CalculateTimestep(S_LO);
-         // double dt_LO = hydro_LO->GetTimestep();
-         // if (dt > dt_LO)
-         // {
-         //    // cout << "dt: " << dt << ", lo dt: " << dt_LO << endl;
-         //    dt = dt_LO;
-         //    // MFEM_ABORT("Time step too large.\n");
-         // }
-         MFEM_WARNING("Check that lom satisfies cfl condition.\n");
+         hydro_LO->CalculateTimestep(S_LO);
+         double dt_LO = hydro_LO->GetTimestep();
+         if (dt > dt_LO)
+         {
+            // cout << "dt: " << dt << ", lo dt: " << dt_LO << endl;
+            dt = dt_LO;
+            // MFEM_ABORT("Time step too large.\n");
+         }
+         // MFEM_WARNING("Check that lom satisfies cfl condition.\n");
       }
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
       ode_solver->Step(S, t, dt);
-      hydro.GetSLO(S_LO);
       // Increment steps
       steps++;
 
@@ -1192,6 +1194,7 @@ int main(int argc, char *argv[])
       // Do the same case for the low order approximation
       if (idp_limit)
       {
+         hydro.GetSLO(S_LO);
          x_gf_LO.SyncAliasMemory(S_LO);
          sv_gf_LO.SyncAliasMemory(S_LO);
          v_gf_LO.SyncAliasMemory(S_LO);
