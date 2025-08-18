@@ -1076,8 +1076,6 @@ int main(int argc, char *argv[])
       pd->SetHighOrderOutput(true);
       pd->SetDataFormat(VTKFormat::BINARY);
       pd->SetPrefixPath(basename);
-      pd->SetLevelsOfDetail(order_e);
-      pd->SetHighOrderOutput(true);
       pd->SetCycle(0);
       pd->SetTime(0.0);
       pd->RegisterField("Density",  &rho_gf);
