@@ -1067,26 +1067,35 @@ int main(int argc, char *argv[])
       visit_dc_LO.Save();
    }
 
-   ParaViewDataCollection paraview_dc(basename, pmesh);
-   ParaViewDataCollection paraview_dc_LO(basename_LO, pmesh_lo);
+   ParaViewDataCollection *pd;
+   ParaViewDataCollection *pd_LO;
    if (pview)
    {
-      paraview_dc.SetDataFormat(VTKFormat::ASCII);
-      paraview_dc.RegisterField("Density",  &rho_gf);
-      paraview_dc.RegisterField("Density limited", &rho_gf_limited);
-      paraview_dc.RegisterField("Velocity", &v_gf);
-      paraview_dc.RegisterField("Specific Internal Energy", &e_gf);
-      paraview_dc.SetCycle(0);
-      paraview_dc.SetTime(0.0);
-      paraview_dc.Save();
+      pd = new ParaViewDataCollection("ParaView", pmesh);
+      pd->SetLevelsOfDetail(order_v);
+      pd->SetHighOrderOutput(true);
+      pd->SetDataFormat(VTKFormat::BINARY);
+      pd->SetPrefixPath(basename);
+      pd->SetLevelsOfDetail(order_e);
+      pd->SetHighOrderOutput(true);
+      pd->SetCycle(0);
+      pd->SetTime(0.0);
+      pd->RegisterField("Density",  &rho_gf);
+      pd->RegisterField("Density limited", &rho_gf_limited);
+      pd->RegisterField("Velocity", &v_gf);
+      pd->RegisterField("Specific Internal Energy", &e_gf);
+      pd->Save();
 
-      paraview_dc_LO.SetDataFormat(VTKFormat::ASCII);
-      paraview_dc_LO.RegisterField("Density", &rho_gf_LO);
-      paraview_dc_LO.RegisterField("Velocity", &v_gf_LO);
-      paraview_dc_LO.RegisterField("Specific Total Energy", &ste_gf_LO);
-      paraview_dc_LO.SetCycle(0);
-      paraview_dc_LO.SetTime(0.0);
-      paraview_dc_LO.Save();
+      pd_LO = new ParaViewDataCollection("ParaView", pmesh_lo);
+      pd_LO->SetLevelsOfDetail(order_v_lo);
+      pd_LO->SetDataFormat(VTKFormat::BINARY);
+      pd_LO->SetPrefixPath(basename_LO);
+      pd_LO->RegisterField("Density", &rho_gf_LO);
+      pd_LO->RegisterField("Velocity", &v_gf_LO);
+      pd_LO->RegisterField("Specific Total Energy", &ste_gf_LO);
+      pd_LO->SetCycle(0);
+      pd_LO->SetTime(0.0);
+      pd_LO->Save();
    }
 
    // Perform time-integration (looping over the time iterations, ti, with a
@@ -1330,13 +1339,13 @@ int main(int argc, char *argv[])
 
          if (pview)
          {
-            paraview_dc.SetCycle(ti);
-            paraview_dc.SetTime(t);
-            paraview_dc.Save();
+            pd->SetCycle(ti);
+            pd->SetTime(t);
+            pd->Save();
 
-            paraview_dc_LO.SetCycle(ti);
-            paraview_dc_LO.SetTime(t);
-            paraview_dc_LO.Save();
+            pd_LO->SetCycle(ti);
+            pd_LO->SetTime(t);
+            pd_LO->Save();
          }
 
          if (gfprint)
