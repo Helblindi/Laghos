@@ -594,7 +594,7 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace LO_H1FESpace(pmesh_lo, &LO_H1FEC, dim);
    ParFiniteElementSpace LO_H1FESpace_L(pmesh_lo, &LO_H1FEC_L, dim);
    /* Finite element space solely constructed for continuous representation of density field */
-   ParFiniteElementSpace LO_L2FESpace(pmesh_lo, &LO_L2FEC);
+   ParFiniteElementSpace LO_L2FESpace(pmesh_lo, &LO_L2FEC, 1);
    ParFiniteElementSpace LO_L2VFESpace(pmesh_lo, &LO_L2FEC, dim);
    ParFiniteElementSpace LO_CRFESpace(pmesh_lo, LO_CRFEC, dim);
 
@@ -941,9 +941,9 @@ int main(int argc, char *argv[])
 
    /*** Build limiter ***/
    H1_FECollection H1FEC_LO_t(1, dim);
-   ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t);
+   ParFiniteElementSpace H1FESpace_proj_LO(pmesh_lo, &H1FEC_LO_t, 1);
    H1_FECollection H1FEC_HO_t(order_v, dim);
-   ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t); 
+   ParFiniteElementSpace H1FESpace_proj_HO(pmesh, &H1FEC_HO_t, 1); 
    IDPLimiter *idpl = NULL;
    if (idp_limit)
    {
