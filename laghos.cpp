@@ -771,8 +771,8 @@ int main(int argc, char *argv[])
    // this density is a temporary function and it will not be updated during the
    // time evolution.
    ParGridFunction rho0_gf(&L2FESpace);
-   FunctionCoefficient rho0_coeff(rho0_static);
-   rho0_coeff.SetTime(t_init);
+   FunctionCoefficient rho_coeff(rho0_static);
+   rho_coeff.SetTime(t_init);
    L2_FECollection l2_fec(order_e, pmesh->Dimension());
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
    ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes);
@@ -781,9 +781,9 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace l2_fes_lo(pmesh_lo, &l2_fec_lo);
    ParGridFunction l2_e_LO(&l2_fes_lo);
 
-   l2_rho0_gf.ProjectCoefficient(rho0_coeff);
+   l2_rho0_gf.ProjectCoefficient(rho_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
-   rho_gf_LO.ProjectCoefficient(rho0_coeff);
+   rho_gf_LO.ProjectCoefficient(rho_coeff);
    rho_gf.ProjectGridFunction(l2_rho0_gf);
 
    FunctionCoefficient sie_coeff(sie0_static);
@@ -865,14 +865,14 @@ int main(int argc, char *argv[])
 
    /* Construct mass vectors */
    ParLinearForm *mHO = new ParLinearForm(&L2FESpace);
-   mHO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff));
+   mHO->AddDomainIntegrator(new DomainLFIntegrator(rho_coeff));
    mHO->Assemble();
    HypreParVector *mHO_hpv = mHO->ParallelAssemble();
 
    /* Assemble initial masses for low order approximation */
    IntegrationRule LO_ir = IntRules.Get(pmesh_lo->GetElementBaseGeometry(0), 3*LO_H1FESpace.GetOrder(0) + LO_L2FESpace.GetOrder(0) - 1);;
    ParLinearForm *mLO = new ParLinearForm(&LO_L2FESpace);
-   mLO->AddDomainIntegrator(new DomainLFIntegrator(rho0_coeff, &LO_ir));
+   mLO->AddDomainIntegrator(new DomainLFIntegrator(rho_coeff, &LO_ir));
    mLO->Assemble();
 
    if (idp_limit)
@@ -959,7 +959,7 @@ int main(int argc, char *argv[])
       /*** Build Low-order solver */
       hydro_LO = new hydroLO::LagrangianLOOperator(
          dim, S_LO.Size(), LO_H1FESpace, LO_H1FESpace_L, LO_L2FESpace, 
-         LO_L2VFESpace, LO_CRFESpace, rho0_coeff, rho_gf_LO, mLO, LO_ir, problem_class, 
+         LO_L2VFESpace, LO_CRFESpace, rho_coeff, rho_gf_LO, mLO, LO_ir, problem_class, 
          offset_LO, use_viscosity, 0, mm, cfl);
       
       hydro_LO->SetInitialMassesAndVolumes(S_LO);
@@ -983,7 +983,7 @@ int main(int argc, char *argv[])
 
    hydrodynamics::LagrangianHydroOperator hydro(S.Size(),
                                                 H1FESpace, L2FESpace, ess_tdofs,
-                                                rho0_coeff, rho0_gf,
+                                                rho_coeff, rho0_gf,
                                                 idp_limit,
                                                 problem_class,
                                                 mat_gf, 
@@ -1238,7 +1238,7 @@ int main(int argc, char *argv[])
       double global_sum_cm;
       MPI_Allreduce(&sum_current_masses, &global_sum_cm, 1, MPI_DOUBLE, MPI_SUM, pmesh->GetComm());
       double _val = abs(global_sum_cm - global_sum_om) / global_sum_om;
-      if (_val > 1.e-10)
+      if (_val > 1.e-12)
       {
          cout << "|global_sum_cm - global_sum_om| = " << _val << endl;
          cout << setprecision(12) << "sum current masses: " << global_sum_cm << ", sum original: " << global_sum_om << endl;
@@ -1303,11 +1303,11 @@ int main(int argc, char *argv[])
          /* Compute errors */
          if (problem_class->has_exact_solution())
          {
-            rho0_coeff.SetTime(t);
+            rho_coeff.SetTime(t);
             v_coeff.SetTime(t);
             sie_coeff.SetTime(t);
 
-            rho_ex_gf.ProjectCoefficient(rho0_coeff);
+            rho_ex_gf.ProjectCoefficient(rho_coeff);
             vel_ex_gf.ProjectCoefficient(v_coeff);
             l2_e.ProjectCoefficient(sie_coeff);
             sie_ex_gf.ProjectGridFunction(l2_e);
@@ -1330,6 +1330,7 @@ int main(int argc, char *argv[])
                sie_ex_gf.ProjectCoefficient(_zero_vcc, 99);
             }
 
+            /* Compute errors */
             subtract(rho_gf_limited, rho_ex_gf, rho_err_gf);
             subtract(v_gf, vel_ex_gf, v_err_gf);
             subtract(e_gf, sie_ex_gf, e_err_gf);
@@ -1551,29 +1552,19 @@ int main(int argc, char *argv[])
              rho_L2_error_n = 0., vel_L2_error_n = 0., ste_L2_error_n = 0.,
              rho_Max_error_n = 0., vel_Max_error_n = 0., ste_Max_error_n = 0.;
 
-      /* Set coefficients to final time */
-      FunctionCoefficient rho_coeff(rho0_static);
-      rho_coeff.SetTime(t);
-      v_coeff.SetTime(t);
-      FunctionCoefficient sie_coeff(sie0_static);
-      sie_coeff.SetTime(t);
-      // FunctionCoefficient sv_coeff(sv0_static);
-      // sv_coeff.SetTime(t);
 
       if (problem_class->get_indicator() == "Vdw1")
       {
          problem_class->update(x_gf, t);
       }
+      /* Set coefficients to final time */
+      rho_coeff.SetTime(t);
+      v_coeff.SetTime(t);
+      sie_coeff.SetTime(t);
 
-      // Compute errors
-      ParGridFunction rho_ex_gf(&L2FESpace), vel_ex_gf(&H1FESpace), sie_ex_gf(&L2FESpace), sv_ex_gf(&L2FESpace);
+      // Set exact gfs
       rho_ex_gf.ProjectCoefficient(rho_coeff);
       vel_ex_gf.ProjectCoefficient(v_coeff);
-
-      // Similar to how the gridfunction is initialized, we need to interpolate in a non-positive 
-      // basis to get the correct values at the dofs. Then we do an L2 projection to the positive
-      // basis in which we actually compute. The goal is to get a high-order representation of the
-      // exact solution.
       l2_e.ProjectCoefficient(sie_coeff);
       sie_ex_gf.ProjectGridFunction(l2_e);
 
@@ -1594,7 +1585,6 @@ int main(int argc, char *argv[])
       //          e_gf[i] = 0.;
       //          rho_ex_gf[i] = 0.;
       //          sie_ex_gf[i] = 0.;
-      //          sv_ex_gf[i] = 0.;
       //          for (int j = 0; j < dim; j++)
       //          {
       //             int index = i + j*pmesh->GetNE();
@@ -1621,24 +1611,23 @@ int main(int argc, char *argv[])
          rho_ex_gf.ProjectCoefficient(_zero_vcc, 99);
          vel_ex_gf.ProjectCoefficient(_zero_vcc, 99);
          sie_ex_gf.ProjectCoefficient(_zero_vcc, 99);
-         sv_ex_gf.ProjectCoefficient(_zero_vcc, 99);
       }
 
       /* Compute relative errors */
-      GridFunctionCoefficient rho_ex_coeff(&rho_ex_gf), vel_ex_coeff(&vel_ex_gf), ste_ex_coeff(&sie_ex_gf), sv_ex_coeff(&sv_ex_gf);
+      // GridFunctionCoefficient rho_ex_coeff(&rho_ex_gf), vel_ex_coeff(&vel_ex_gf), sie_ex_coeff(&sie_ex_gf);
       
-      // Velocity errors
-      vel_L1_error_n = v_gf.ComputeL1Error(vel_ex_coeff) / vel_ex_gf.ComputeL1Error(zero);
-      vel_L2_error_n = v_gf.ComputeL2Error(vel_ex_coeff) / vel_ex_gf.ComputeL2Error(zero);
-      vel_Max_error_n = v_gf.ComputeMaxError(vel_ex_coeff) / vel_ex_gf.ComputeMaxError(zero);
-      
-      rho_L1_error_n = rho_gf.ComputeL1Error(rho_ex_coeff) / rho_ex_gf.ComputeL1Error(zero);
-      rho_L2_error_n = rho_gf.ComputeL2Error(rho_ex_coeff) / rho_ex_gf.ComputeL2Error(zero);
-      rho_Max_error_n = rho_gf.ComputeMaxError(rho_ex_coeff) / rho_ex_gf.ComputeMaxError(zero);
+      rho_L1_error_n = rho_gf.ComputeL1Error(rho_coeff) / rho_gf.ComputeL1Error(zero);
+      rho_L2_error_n = rho_gf.ComputeL2Error(rho_coeff) / rho_gf.ComputeL2Error(zero);
+      rho_Max_error_n = rho_gf.ComputeMaxError(rho_coeff) / rho_gf.ComputeMaxError(zero);
+      // Can project rho_ex_coeff instead if enforcing BCs is needed. However this is not needed in the case of IV and TG.
 
-      ste_L1_error_n = e_gf.ComputeL1Error(ste_ex_coeff) / sie_ex_gf.ComputeL1Error(zero);
-      ste_L2_error_n = e_gf.ComputeL2Error(ste_ex_coeff) / sie_ex_gf.ComputeL2Error(zero);
-      ste_Max_error_n = e_gf.ComputeMaxError(ste_ex_coeff) / sie_ex_gf.ComputeMaxError(zero);
+      vel_L1_error_n = v_gf.ComputeL1Error(v_coeff) / v_gf.ComputeL1Error(zero);
+      vel_L2_error_n = v_gf.ComputeL2Error(v_coeff) / v_gf.ComputeL2Error(zero);
+      vel_Max_error_n = v_gf.ComputeMaxError(v_coeff) / v_gf.ComputeMaxError(zero);
+
+      ste_L1_error_n = e_gf.ComputeL1Error(sie_coeff) / e_gf.ComputeL1Error(zero);
+      ste_L2_error_n = e_gf.ComputeL2Error(sie_coeff) / e_gf.ComputeL2Error(zero);
+      ste_Max_error_n = e_gf.ComputeMaxError(sie_coeff) / e_gf.ComputeMaxError(zero);
 
       /* Get composite errors values, will return 0 if exact solution is not known */
       const double L1_error = (rho_L1_error_n + vel_L1_error_n + ste_L1_error_n) / 3.;
