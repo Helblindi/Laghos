@@ -218,6 +218,9 @@ int main(int argc, char *argv[])
       return 1;
    }
    if (Mpi::Root()) { args.PrintOptions(cout); }
+
+   /* Form basename for refinement specific visualization objects */
+   std::string basename_refinement = std::string(basename)+"/r" + to_string(rp_levels+rs_levels) + "/";
    
    std::string basename_LO_str = basename;
    basename_LO_str += "LO/";
@@ -729,12 +732,17 @@ int main(int argc, char *argv[])
    /* Define the low order grid functions*/
    ParGridFunction x_gf_LO, sv_gf_LO, v_gf_LO, ste_gf_LO;
    ParGridFunction rho_gf_LO(&LO_L2FESpace), mc_gf_LO(&LO_L2FESpace);
-   ParGridFunction rho_gf(&L2FESpace), rho_gf_limited(&L2FESpace);
+
    mc_gf_LO = 0.; // if a cells value is 0, mass is conserved
    x_gf_LO.MakeRef(&LO_H1FESpace, S_LO, offset_LO[0]);
    sv_gf_LO.MakeRef(&LO_L2FESpace, S_LO, offset_LO[1]);
    v_gf_LO.MakeRef(&LO_L2VFESpace, S_LO, offset_LO[2]);
    ste_gf_LO.MakeRef(&LO_L2FESpace, S_LO, offset_LO[3]);
+
+   /* Define all other grid functions */
+   ParGridFunction rho_gf(&L2FESpace), rho_gf_limited(&L2FESpace);
+   ParGridFunction rho_err_gf(&L2FESpace), v_err_gf(&H1FESpace), e_err_gf(&L2FESpace);
+   ParGridFunction rho_ex_gf(&L2FESpace), vel_ex_gf(&H1FESpace), sie_ex_gf(&L2FESpace);
 
    // Initialize x_gf using the starting mesh coordinates.
    pmesh->SetNodalGridFunction(&x_gf);
@@ -778,6 +786,11 @@ int main(int argc, char *argv[])
    rho_gf_LO.ProjectCoefficient(rho0_coeff);
    rho_gf.ProjectGridFunction(l2_rho0_gf);
 
+   FunctionCoefficient sie_coeff(sie0_static);
+   FunctionCoefficient ste_coeff(ste0_static);
+   sie_coeff.SetTime(t_init);
+   ste_coeff.SetTime(t_init);
+
    if (problem == 1)
    {
       // For the Sedov test, we use a delta function at the origin.
@@ -788,10 +801,6 @@ int main(int argc, char *argv[])
    }
    else
    {
-      FunctionCoefficient sie_coeff(sie0_static);
-      FunctionCoefficient ste_coeff(ste0_static);
-      sie_coeff.SetTime(t_init);
-      ste_coeff.SetTime(t_init);
       l2_e.ProjectCoefficient(sie_coeff);
       l2_e_LO.ProjectCoefficient(ste_coeff);
    }
@@ -1075,13 +1084,19 @@ int main(int argc, char *argv[])
       pd->SetLevelsOfDetail(order_v);
       pd->SetHighOrderOutput(true);
       pd->SetDataFormat(VTKFormat::BINARY);
-      pd->SetPrefixPath(basename);
+      pd->SetPrefixPath(basename_refinement);
       pd->SetCycle(0);
       pd->SetTime(0.0);
       pd->RegisterField("Density",  &rho_gf);
       pd->RegisterField("Density limited", &rho_gf_limited);
       pd->RegisterField("Velocity", &v_gf);
       pd->RegisterField("Specific Internal Energy", &e_gf);
+      pd->RegisterField("Density exact", &rho_ex_gf);
+      pd->RegisterField("Velocity exact", &vel_ex_gf);
+      pd->RegisterField("Specific Internal Energy exact", &sie_ex_gf);
+      pd->RegisterField("Density error", &rho_err_gf);
+      pd->RegisterField("Velocity error", &v_err_gf);
+      pd->RegisterField("Specific Internal Energy error", &e_err_gf);
       pd->Save();
 
       pd_LO = new ParaViewDataCollection("ParaView", pmesh_lo);
@@ -1284,6 +1299,42 @@ int main(int argc, char *argv[])
             hydro.ComputeDensity(rho_gf); 
             hydro.GetRhoGFLim(rho_gf_limited);
          }
+
+         /* Compute errors */
+         if (problem_class->has_exact_solution())
+         {
+            rho0_coeff.SetTime(t);
+            v_coeff.SetTime(t);
+            sie_coeff.SetTime(t);
+
+            rho_ex_gf.ProjectCoefficient(rho0_coeff);
+            vel_ex_gf.ProjectCoefficient(v_coeff);
+            l2_e.ProjectCoefficient(sie_coeff);
+            sie_ex_gf.ProjectGridFunction(l2_e);
+
+            /* Project 0 on all extrapolated cells, marked with attr = 99 */
+            if (pmesh->attributes.Find(99) != -1)
+            {
+               if (Mpi::Root()) { cout << "Projecting zero on cells with attr 99\n"; }
+               Vector _vec_zero(dim);
+               _vec_zero = 0.;
+               VectorConstantCoefficient _zero_vcc(_vec_zero);
+               // onto approx
+               rho_gf.ProjectCoefficient(_zero_vcc, 99);
+               v_gf.ProjectCoefficient(_zero_vcc, 99);
+               e_gf.ProjectCoefficient(_zero_vcc, 99);
+
+               // onto exact
+               rho_ex_gf.ProjectCoefficient(_zero_vcc, 99);
+               vel_ex_gf.ProjectCoefficient(_zero_vcc, 99);
+               sie_ex_gf.ProjectCoefficient(_zero_vcc, 99);
+            }
+
+            subtract(rho_gf_limited, rho_ex_gf, rho_err_gf);
+            subtract(v_gf, vel_ex_gf, v_err_gf);
+            subtract(e_gf, sie_ex_gf, e_err_gf);
+         }
+
          if (visualization)
          {
             int Wx = 0, Wy = 0; // window position
@@ -1572,12 +1623,6 @@ int main(int argc, char *argv[])
          sie_ex_gf.ProjectCoefficient(_zero_vcc, 99);
          sv_ex_gf.ProjectCoefficient(_zero_vcc, 99);
       }
-
-      /* Exact grid function shows inf */
-      // e_gf.Print(cout);
-      // cout << "---\n";
-      // sie_ex_gf.Print(cout);
-      // sie_ex_gf[0] = e_gf[0];
 
       /* Compute relative errors */
       GridFunctionCoefficient rho_ex_coeff(&rho_ex_gf), vel_ex_coeff(&vel_ex_gf), ste_ex_coeff(&sie_ex_gf), sv_ex_coeff(&sv_ex_gf);
