@@ -137,7 +137,6 @@ protected:
    mutable BlockVector S_LO; // Low-order solution state
    Array<int> block_offsets_LO;
    void InitializeLOValues();
-   void UpdateLOBlockVector(const Vector &S) const;
    GridTransfer *mv_gt;
    // Velocity mass matrix and local inverses of the energy mass matrices. These
    // are constant in time, due to the pointwise mass conservation property.
@@ -225,6 +224,7 @@ public:
       UpdateQuadratureData(S);
    }
    void GetRhoGFLim(ParGridFunction &rho_gf) const { rho_gf = rho_gf_lim; }
+   void UpdateLOBlockVector(const Vector &S) const;
    void GetSLO(Vector &_S_LO) const { _S_LO = this->S_LO;}
 
    // Calls UpdateQuadratureData to compute the new qdata.dt_estimate.

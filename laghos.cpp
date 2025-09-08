@@ -1099,16 +1099,19 @@ int main(int argc, char *argv[])
       pd->RegisterField("Specific Internal Energy error", &e_err_gf);
       pd->Save();
 
-      pd_LO = new ParaViewDataCollection("ParaView", pmesh_lo);
-      pd_LO->SetLevelsOfDetail(order_v_lo);
-      pd_LO->SetDataFormat(VTKFormat::BINARY);
-      pd_LO->SetPrefixPath(basename_LO);
-      pd_LO->RegisterField("Density", &rho_gf_LO);
-      pd_LO->RegisterField("Velocity", &v_gf_LO);
-      pd_LO->RegisterField("Specific Total Energy", &ste_gf_LO);
-      pd_LO->SetCycle(0);
-      pd_LO->SetTime(0.0);
-      pd_LO->Save();
+      if (idp_limit)
+      {
+         pd_LO = new ParaViewDataCollection("ParaViewLO", pmesh_lo);
+         pd_LO->SetLevelsOfDetail(order_v_lo);
+         pd_LO->SetDataFormat(VTKFormat::BINARY);
+         pd_LO->SetPrefixPath(basename_refinement);
+         pd_LO->RegisterField("Density", &rho_gf_LO);
+         pd_LO->RegisterField("Velocity", &v_gf_LO);
+         pd_LO->RegisterField("Specific Total Energy", &ste_gf_LO);
+         pd_LO->SetCycle(0);
+         pd_LO->SetTime(0.0);
+         pd_LO->Save();
+      }
    }
 
    // Perform time-integration (looping over the time iterations, ti, with a
@@ -1216,9 +1219,11 @@ int main(int argc, char *argv[])
       // Do the same case for the low order approximation
       if (idp_limit)
       {
+         hydro.UpdateLOBlockVector(S);
          hydro.GetSLO(S_LO);
          x_gf_LO.SyncAliasMemory(S_LO);
          sv_gf_LO.SyncAliasMemory(S_LO);
+         hydro_LO->ComputeDensity(S_LO, rho_gf_LO);
          v_gf_LO.SyncAliasMemory(S_LO);
          ste_gf_LO.SyncAliasMemory(S_LO);
          pmesh_lo->NewNodes(x_gf_LO, false);
