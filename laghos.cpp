@@ -562,6 +562,12 @@ int main(int argc, char *argv[])
    std::function<double(const Vector &,const double)> gamma_func_static =
       std::bind(&hydroLO::ProblemBase::gamma_func, problem_class, std::placeholders::_1, std::placeholders::_2);
 
+   // Vectorized density and sie for extrapolated cases
+   std::function<void(const Vector &, const double, Vector &)> rho0_vec_static =
+      std::bind(&hydroLO::ProblemBase::rho0_vec, problem_class, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+   std::function<void(const Vector &, const double, Vector &)> sie0_vec_static =
+      std::bind(&hydroLO::ProblemBase::sie0_vec, problem_class, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+
    // Define the parallel finite element spaces. We use:
    // - H1 (Gauss-Lobatto, continuous) for position and velocity.
    // - L2 (Bernstein, discontinuous) for specific internal energy.
@@ -1318,22 +1324,22 @@ int main(int argc, char *argv[])
             sie_ex_gf.ProjectGridFunction(l2_e);
 
             /* Project 0 on all extrapolated cells, marked with attr = 99 */
-            if (pmesh->attributes.Find(99) != -1)
-            {
-               if (Mpi::Root()) { cout << "Projecting zero on cells with attr 99\n"; }
-               Vector _vec_zero(dim);
-               _vec_zero = 0.;
-               VectorConstantCoefficient _zero_vcc(_vec_zero);
-               // onto approx
-               rho_gf.ProjectCoefficient(_zero_vcc, 99);
-               v_gf.ProjectCoefficient(_zero_vcc, 99);
-               e_gf.ProjectCoefficient(_zero_vcc, 99);
+            // if (pmesh->attributes.Find(99) != -1)
+            // {
+            //    if (Mpi::Root()) { cout << "Projecting zero on cells with attr 99\n"; }
+            //    Vector _vec_zero(dim);
+            //    _vec_zero = 0.;
+            //    VectorConstantCoefficient _zero_vcc(_vec_zero);
+            //    // onto approx
+            //    rho_gf.ProjectCoefficient(_zero_vcc, 99);
+            //    v_gf.ProjectCoefficient(_zero_vcc, 99);
+            //    e_gf.ProjectCoefficient(_zero_vcc, 99);
 
-               // onto exact
-               rho_ex_gf.ProjectCoefficient(_zero_vcc, 99);
-               vel_ex_gf.ProjectCoefficient(_zero_vcc, 99);
-               sie_ex_gf.ProjectCoefficient(_zero_vcc, 99);
-            }
+            //    // onto exact
+            //    rho_ex_gf.ProjectCoefficient(_zero_vcc, 99);
+            //    vel_ex_gf.ProjectCoefficient(_zero_vcc, 99);
+            //    sie_ex_gf.ProjectCoefficient(_zero_vcc, 99);
+            // }
 
             /* Compute errors */
             subtract(rho_gf_limited, rho_ex_gf, rho_err_gf);
@@ -1608,9 +1614,13 @@ int main(int argc, char *argv[])
          _vec_zero = 0.;
          VectorConstantCoefficient _zero_vcc(_vec_zero);
          // onto approx
-         rho_gf.ProjectCoefficient(_zero_vcc, 99);
-         v_gf.ProjectCoefficient(_zero_vcc, 99);
-         e_gf.ProjectCoefficient(_zero_vcc, 99);
+         VectorFunctionCoefficient rho_vec_coeff(1, rho0_vec_static);
+         rho_vec_coeff.SetTime(t);
+         rho_gf.ProjectCoefficient(rho_vec_coeff, 99);
+         v_gf.ProjectCoefficient(v_coeff, 99);
+         VectorFunctionCoefficient sie_vec_coeff(1, sie0_vec_static);
+         sie_vec_coeff.SetTime(t);
+         e_gf.ProjectCoefficient(sie_vec_coeff, 99);
 
          // onto exact
          rho_ex_gf.ProjectCoefficient(_zero_vcc, 99);
