@@ -789,7 +789,7 @@ int main(int argc, char *argv[])
 
    l2_rho0_gf.ProjectCoefficient(rho_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
-   rho_gf_LO.ProjectCoefficient(l2_rho0_gf);
+   rho_gf_LO.ProjectCoefficient(rho_coeff);
    rho_gf.ProjectGridFunction(l2_rho0_gf);
    rho_gf_limited.ProjectGridFunction(l2_rho0_gf);
 
