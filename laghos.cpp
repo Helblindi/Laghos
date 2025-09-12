@@ -1404,9 +1404,12 @@ int main(int argc, char *argv[])
             pd->SetTime(t);
             pd->Save();
 
-            pd_LO->SetCycle(ti);
-            pd_LO->SetTime(t);
-            pd_LO->Save();
+            if (idp_limit)
+            {
+               pd_LO->SetCycle(ti);
+               pd_LO->SetTime(t);
+               pd_LO->Save();
+            }
          }
 
          if (gfprint)
