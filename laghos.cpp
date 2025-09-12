@@ -1299,7 +1299,7 @@ int main(int argc, char *argv[])
          if (idp_limit)
          {
             double mass_loss;
-            hydro_LO->ValidateMassConservation(S_LO, mc_gf_LO, mass_loss);
+            hydro_LO->ValidateMassConservation(S_LO, mc_gf_LO, mass_loss, "limiter");
          }
 
          // Make sure all ranks have sent their 'v' solution before initiating
