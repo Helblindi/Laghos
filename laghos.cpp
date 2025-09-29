@@ -1085,7 +1085,7 @@ int main(int argc, char *argv[])
 
    ParaViewDataCollection *pd;
    ParaViewDataCollection *pd_LO;
-   if (pview)
+   // if (pview)
    {
       pd = new ParaViewDataCollection("ParaView", pmesh);
       pd->SetLevelsOfDetail(order_v);
@@ -1117,6 +1117,20 @@ int main(int argc, char *argv[])
          pd_LO->RegisterField("Specific Total Energy", &ste_gf_LO);
          pd_LO->SetCycle(0);
          pd_LO->SetTime(0.0);
+         pd_LO->Save();
+      }
+   }
+
+   // In all cases, print the initial pview files
+   {
+      pd->SetCycle(0);
+      pd->SetTime(0.);
+      pd->Save();
+
+      if (idp_limit)
+      {
+         pd_LO->SetCycle(0);
+         pd_LO->SetTime(0.);
          pd_LO->Save();
       }
    }
@@ -1503,6 +1517,20 @@ int main(int argc, char *argv[])
       case 4: steps *= 4; break;
       case 6: steps *= 6; break;
       case 7: steps *= 2;
+   }
+
+   // In all cases, print the final pview files
+   {
+      pd->SetCycle(steps);
+      pd->SetTime(t);
+      pd->Save();
+
+      if (idp_limit)
+      {
+         pd_LO->SetCycle(steps);
+         pd_LO->SetTime(t);
+         pd_LO->Save();
+      }
    }
 
    hydro.PrintTimingData(Mpi::Root(), steps, fom);
